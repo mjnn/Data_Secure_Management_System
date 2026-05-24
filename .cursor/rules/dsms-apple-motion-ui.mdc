@@ -1,0 +1,27 @@
+---
+description: DSMS 门户「Apple 式」动效与毛玻璃材质 — 令牌、实现位置与约束
+alwaysApply: true
+---
+
+# DSMS 门户动效与毛玻璃（Apple 式设计语言）
+
+在保持 **`dsms-project-context.mdc`** 浅色门户、灰阶主色与顶栏类名约束的前提下，全站采用 **轻量、减速曲线、材质分层** 的交互观感（参考 Apple HIG：清晰层次、不炫技、尊重 `prefers-reduced-motion`）。
+
+## 设计原则
+
+- **动效**：默认使用 **ease-out / emphasized** 类曲线（见 `--dsms-ease-*`），时长 **120–520ms** 分段；避免线性长拖尾。微交互（按钮、触发器）可配合 **极短缩放**（如 `scale(0.98)`），须仅在 `prefers-reduced-motion: no-preference` 下启用。
+- **毛玻璃**：大面积浮层（顶栏、侧栏、主卡片、`el-dialog`）使用 **`backdrop-filter: blur` + `saturate`** 与半透明白底（`--dsms-glass-*`），边框用 **低对比半透明白/灰**（`--dsms-glass-border-subtle`），阴影 **软、扩散大、透明度低**。
+- **路由**：根视图使用 **`dsms-route`** 命名的 `transition`（定义在 `portal-theme.css`），切换登录 / 控制台等全页时 **淡入 + 小幅上浮**。
+- **首屏块**：关键内容容器可加 **`dsms-animate-content-in`**（单次上浮动画，全局定义）。
+- **可复用类**：卡片 / 面板优先使用 **`dsms-glass-panel`**（与页面 scoped 样式组合，勿重复发明一套 blur 变量）。
+
+## 实现落点（须与此一致）
+
+- **设计令牌与全局动效、路由 transition、`.dsms-glass-panel` / `.dsms-animate-content-in`、`el-dialog` / 遮罩轻磨砂**：**`frontend/src/styles/portal-theme.css`**。
+- **新页面**：顶栏仍用 **`.dsms-portal-topbar*`**；业务卡片与侧栏风格与现有 Dashboard / 登录页对齐，**优先复用上述 class 与 CSS 变量**，避免在各页硬编码 `blur(20px)` 散值。
+- **无障碍**：所有新增连续动画须配套 **`@media (prefers-reduced-motion: reduce)`** 关闭或归零时长（全局 `:root` 已缩短令牌时长；页面级 transform 动画需单独降级）。
+
+## 禁止
+
+- **不要**为追求动效引入全站深色主题或覆盖 Element Plus 主色为彩色渐变主品牌（与项目上下文冲突时以 **`dsms-project-context.mdc`** 为准）。
+- **不要**使用高频弹跳、循环闪烁、长距离抛物线等干扰阅读的企业「炫动效」。

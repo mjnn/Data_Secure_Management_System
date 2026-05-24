@@ -1,0 +1,42 @@
+---
+description: DSMS 数据安全治理独立系统 — 核心上下文与实施边界
+alwaysApply: true
+---
+
+# DSMS 核心上下文
+
+## 必读
+
+实施前完整阅读本仓库 **`docs/DSMS_IMPLEMENTATION_SPEC.md`**，**从「前言」与「文档契约」读起**。API、数据模型、分期范围、审计键均以该文档为准。**不要**依赖任何「与别项目相同」的未写明假设；也**不要**引用本仓库以外的源码路径作为需求来源。
+
+**门户 UI 固化说明**：具体页面开发前请阅读 **`docs/DSMS_PORTAL_UI_GUIDE.md`**（顶栏/侧栏/令牌/深浅色/动效/自检清单）；与 **`frontend/src/styles/portal-theme.css`** 保持一致。
+
+**前端交付与联调**：每完成可合并的前端业务页（或壳层上新的可调后端能力），须按 **`docs/DSMS_FRONTEND_BACKEND_DEPS.md`** 在 **`docs/frontend-backend-deps/`** 维护 **对后端依赖清单**；细则见 **`.cursor/rules/frontend-backend-deps.mdc`**。
+
+## 架构边界
+
+- **本仓库自洽**：独立后端与独立前端，无外部应用宿主、无「工具插件」式路由。
+- **技术栈**：FastAPI + SQLModel + **SQLite（当前文档仅规定此一种数据库）** + Vue 3 + Element Plus + pnpm。
+- **业务 API 路径前缀**：**`/api/v1/dsms/`**；**认证 API**：**`/api/v1/auth/`**（JWT 形态见规格 §5）。
+- **多项目**：业务持久化数据中须含 **`tenant_id`**，并与 **`project_space.tenant_id`** 一致（见规格 §4）。
+- **动态表单**：在 **本仓库代码内** 实现字段定义、校验与取值服务，以及前端 **`FieldConfigManagerTable`**、**`DynamicFieldInputs`**（见规格 §4.4）。
+
+## 前端门户 UI（固定风格，实施须遵守）
+
+- **权威文档**：**`docs/DSMS_PORTAL_UI_GUIDE.md`**（与 **`frontend/src/styles/portal-theme.css`** 同步维护）。新页面、新菜单、新壳层布局 **须** 按指南复用类名与令牌，**勿**复制独立顶栏/侧栏样式。
+- **基调**：浅色为 **白/淡蓝灰底 + 深藏青正文体系**（令牌 `--dsms-text` 等）；深色为 **`html.dark` + 极深藏青底**；主色为 **藏青灰阶**（`:root` / `html.dark` 中 `--el-color-primary*`），主按钮深底白字。**深浅切换**由 `ThemeToggleControl` + `useDsmsTheme` 管理；全站已按需引入 EP 深色变量文件，**勿**在业务单页再挂一套冲突的主色覆盖。
+- **动效与毛玻璃**：曲线、时长、**`dsms-glass-panel` / `dsms-animate-*` / `dsms-route`** 等与 **`dsms-apple-motion-ui.mdc`** 及 **`portal-theme.css`** 一致；新卡片/浮层优先复用 class，勿散落硬编码 `backdrop-filter`。
+- **布局语言**：顶栏 **56px**、毛玻璃顶栏 + 灰底业务区（`--dsms-page-bg`）；侧栏表面 **`--dsms-aside-surface`**；主区卡片 **`dsms-glass-panel`**。控制台壳结构见 UI 指南 **§4**。
+- **路由入口**：登录成功后默认 **`/`** 为 **控制台（Dashboard）**；后续业务从左侧导航接入，新菜单与此一致。
+- **可访问性**：**`document.title`** 与 `router` 的 **`meta.title`** 衔接；顶栏 **`h1.dsms-portal-title`** 与业务区标题层级配合 WCAG 2.4.2。
+
+## 一致性
+
+- **列表**：请求 `skip` / `limit`，响应 `total` / `items`；`limit` 默认 20、最大 500。
+- **用户可见错误信息**：中文（含 HTTP `detail` 等面向人的字段）。
+- **审计 `behavior_key`**：业务操作使用规格 **附录 A** 中的 `key`，**逐字相同**；§8 中为平台 IAM 专用键。
+- **分页 UI**：筛选变更时 `skip` 重置为 0。
+
+## 验证基线
+
+交付前在 `frontend` 执行：`pnpm install --frozen-lockfile`（必要时首次生成 lock）与 **`pnpm run build`**；后端进程可启动并完成规格 §11 中与当前阶段对应的验收项。

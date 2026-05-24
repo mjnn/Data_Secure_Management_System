@@ -1,0 +1,88 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlmodel import Session, select
+
+from app.api.auth import router as auth_router
+from app.api.dsms import router as dsms_router
+from app.api.dsms_phase23 import router as dsms_phase23_router
+from app.api.users import router as users_router
+from app.core.config import settings
+from app.core.database import create_db_and_tables, engine
+from app.core.security import get_password_hash
+from app.models import User
+
+_TEST_SECURITY_FO_USERNAME = "security_fo"
+_TEST_FUNCTION_FO_USERNAME = "function_fo"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_db_and_tables()
+    with Session(engine) as session:
+        existing = session.exec(select(User).where(User.username == settings.first_superuser)).first()
+        if not existing:
+            admin = User(
+                username=settings.first_superuser,
+                email=f"{settings.first_superuser}@local.dsms",
+                hashed_password=get_password_hash(settings.first_superuser_password),
+                full_name="系统管理员",
+                platform_role="system_admin",
+                is_superuser=True,
+                is_active=True,
+                is_approved=True,
+            )
+            session.add(admin)
+            session.commit()
+
+        # 门户测试账号：数据安全 FO、功能 FO（已存在则跳过）
+        if not session.exec(select(User).where(User.username == _TEST_SECURITY_FO_USERNAME)).first():
+            session.add(
+                User(
+                    username=_TEST_SECURITY_FO_USERNAME,
+                    email="security_fo@local.dsms",
+                    hashed_password=get_password_hash(settings.test_security_fo_password),
+                    full_name="数据安全FO（测试）",
+                    platform_role="security_fo",
+                    is_superuser=False,
+                    is_active=True,
+                    is_approved=True,
+                )
+            )
+        if not session.exec(select(User).where(User.username == _TEST_FUNCTION_FO_USERNAME)).first():
+            session.add(
+                User(
+                    username=_TEST_FUNCTION_FO_USERNAME,
+                    email="function_fo@local.dsms",
+                    hashed_password=get_password_hash(settings.test_function_fo_password),
+                    full_name="功能FO（测试）",
+                    platform_role="function_fo",
+                    is_superuser=False,
+                    is_active=True,
+                    is_approved=True,
+                )
+            )
+        session.commit()
+    yield
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.backend_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(dsms_router)
+app.include_router(dsms_phase23_router)
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}

@@ -1,0 +1,22 @@
+---
+description: 前端页面交付后须编写「对后端依赖清单」文档，便于联调
+alwaysApply: true
+---
+
+# 前端 → 后端依赖文档（交付纪律）
+
+## 必须遵守
+
+在完成 **可合并的前端业务改动**（新路由页、壳层上新的可调后端能力、或既有页新增一类读写接口交互）并准备收尾时：
+
+1. **阅读** **`docs/DSMS_FRONTEND_BACKEND_DEPS.md`** 中的命名规则与章节模板。
+2. **创建或更新** `docs/frontend-backend-deps/<slug>.md`（与页面/路由 kebab-case 对应）；若新增页面，**同步更新** `docs/frontend-backend-deps/README.md` 索引表。
+3. 清单中须写明：**已接 API / Mock / sessionStorage**、**待接路径与 Query/Body 要点**、**权限与规格章节引用**、**与规格的缺口**、**联调自检项**。
+
+## 不必遵守
+
+- 纯样式、纯文案、无新增数据源的交互微调：不强制更新依赖清单（若隐含新接口意图，在对应 `<slug>.md`「待澄清」补一行即可）。
+
+## 与仓库其它规则的关系
+
+不替代 **`docs/DSMS_IMPLEMENTATION_SPEC.md`**；清单中的接口以规格与 OpenAPI 为真源，冲突时在清单 **「与规格的差异」** 中写明并推动规格或代码修正。

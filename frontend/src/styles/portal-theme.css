@@ -1,0 +1,454 @@
+/* 全站门户：白底黑字、灰阶边框，与工作台 / 登录页共用 */
+/* 动效 / 毛玻璃：参考 Apple HIG 式「轻量、减速曲线、材质层次」，令牌供全站复用 */
+:root {
+  /* 曲线：标准减速（接近 iOS/material standard）、出场略快 */
+  --dsms-ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --dsms-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --dsms-ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dsms-duration-instant: 140ms;
+  --dsms-duration-short: 240ms;
+  --dsms-duration-medium: 400ms;
+  --dsms-duration-long: 560ms;
+  /* 浅色：白主色 + 极淡蓝灰底；毛玻璃偏白 */
+  --dsms-glass-bg: rgba(255, 255, 255, 0.82);
+  --dsms-glass-bg-strong: rgba(255, 255, 255, 0.96);
+  --dsms-glass-border: rgba(255, 255, 255, 0.65);
+  --dsms-glass-border-subtle: rgba(148, 163, 184, 0.42);
+  --dsms-glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.07);
+  --dsms-glass-blur: 20px;
+  --dsms-glass-blur-heavy: 28px;
+
+  --dsms-page-bg: #eef2f8;
+  --dsms-text: #0f172a;
+  --dsms-text-secondary: #475569;
+  --workspace-border: #dbe2ef;
+  --workspace-surface: #f4f7fc;
+  --workspace-surface-2: #ffffff;
+  --dsms-aside-surface: #ffffff;
+  /* 深藏青主色（接近黑的蓝），与浅色白底搭配 */
+  --el-color-primary: #152238;
+  --el-color-primary-light-3: #3a4a62;
+  --el-color-primary-light-5: #5d6c82;
+  --el-color-primary-light-7: #8794a6;
+  --el-color-primary-light-8: #a0aab9;
+  --el-color-primary-light-9: #e8ebf2;
+  --el-color-primary-dark-2: #0b141f;
+  /* 焦点环（输入框 inset / outline），深浅色分别覆盖 */
+  --dsms-focus-ring: rgba(21, 34, 56, 0.38);
+}
+
+html {
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  background-color: var(--dsms-page-bg);
+  background-image:
+    radial-gradient(1200px 700px at 10% -6%, rgba(255, 255, 255, 0.92) 0%, transparent 58%),
+    radial-gradient(900px 520px at 92% 6%, rgba(226, 232, 240, 0.95) 0%, transparent 52%);
+  background-attachment: fixed;
+  color: var(--dsms-text);
+  font-family: var(
+    --el-font-family,
+    "Helvetica Neue",
+    Helvetica,
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
+    "微软雅黑",
+    Arial,
+    sans-serif
+  );
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dsms-duration-instant: 0ms;
+    --dsms-duration-short: 0ms;
+    --dsms-duration-medium: 0ms;
+    --dsms-duration-long: 0ms;
+  }
+}
+
+/* —— 顶栏：登录页 / 首页控制台 / 业务工作台共用（勿在页面内重复一套样式） —— */
+/* 使用 header/div 类型选择器提高优先级，避免被其它样式或加载顺序压成块级纵向排版 */
+header.dsms-portal-topbar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  row-gap: 10px;
+  flex-shrink: 0;
+  height: 56px;
+  padding: 0 24px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--dsms-glass-border-subtle);
+  background: var(--dsms-glass-bg-strong);
+  backdrop-filter: blur(var(--dsms-glass-blur)) saturate(1.65);
+  -webkit-backdrop-filter: blur(var(--dsms-glass-blur)) saturate(1.65);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 4px 24px rgba(0, 0, 0, 0.04);
+  transition:
+    background var(--dsms-duration-short) var(--dsms-ease-standard),
+    box-shadow var(--dsms-duration-short) var(--dsms-ease-standard);
+}
+
+div.dsms-portal-topbar__brand {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.dsms-portal-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: transform var(--dsms-duration-short) var(--dsms-ease-out-expo);
+}
+
+.dsms-portal-logo__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dsms-portal-logo:hover {
+    transform: scale(1.03);
+  }
+}
+
+.dsms-portal-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--dsms-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+div.dsms-portal-topbar__actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+header.dsms-portal-topbar .el-button:focus-visible {
+  outline: 2px solid var(--dsms-text);
+  outline-offset: 2px;
+}
+
+/* 登录后主内容区：灰底内边距 */
+.dsms-portal-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px;
+  box-sizing: border-box;
+}
+
+.dsms-dashboard-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--dsms-text);
+}
+
+/* 可复用：卡片 / 面板毛玻璃（业务区在 scoped 中组合 class 即可） */
+.dsms-glass-panel {
+  background: var(--dsms-glass-bg);
+  backdrop-filter: blur(var(--dsms-glass-blur-heavy)) saturate(1.75);
+  -webkit-backdrop-filter: blur(var(--dsms-glass-blur-heavy)) saturate(1.75);
+  border: 1px solid var(--dsms-glass-border-subtle);
+  box-shadow: var(--dsms-glass-shadow);
+  border-radius: 14px;
+  transition:
+    box-shadow var(--dsms-duration-medium) var(--dsms-ease-out-expo),
+    transform var(--dsms-duration-medium) var(--dsms-ease-out-expo),
+    border-color var(--dsms-duration-short) var(--dsms-ease-standard);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dsms-glass-panel:hover {
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* 路由级淡入上浮（App.vue transition name="dsms-route"） */
+.dsms-route-enter-active,
+.dsms-route-leave-active {
+  transition:
+    opacity var(--dsms-duration-medium) var(--dsms-ease-out-expo),
+    transform var(--dsms-duration-medium) var(--dsms-ease-out-expo);
+}
+
+.dsms-route-enter-from,
+.dsms-route-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsms-route-enter-active,
+  .dsms-route-leave-active {
+    transition: none;
+  }
+
+  .dsms-route-enter-from,
+  .dsms-route-leave-to {
+    transform: none;
+  }
+}
+
+/* Element Plus：对话框与遮罩轻磨砂，贴近系统级弹层 */
+.el-overlay-dialog {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.el-dialog {
+  border-radius: 14px !important;
+  overflow: hidden;
+  background: var(--dsms-glass-bg-strong) !important;
+  backdrop-filter: blur(var(--dsms-glass-blur-heavy)) saturate(1.7);
+  -webkit-backdrop-filter: blur(var(--dsms-glass-blur-heavy)) saturate(1.7);
+  border: 1px solid var(--dsms-glass-border-subtle) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.14) !important;
+}
+
+.el-dialog__header {
+  transition: border-color var(--dsms-duration-short) var(--dsms-ease-standard);
+}
+
+.el-button {
+  transition:
+    background-color var(--dsms-duration-short) var(--dsms-ease-standard),
+    border-color var(--dsms-duration-short) var(--dsms-ease-standard),
+    color var(--dsms-duration-short) var(--dsms-ease-standard),
+    box-shadow var(--dsms-duration-short) var(--dsms-ease-standard),
+    transform var(--dsms-duration-instant) var(--dsms-ease-out-expo);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .el-button--primary:not(.is-disabled):active {
+    transform: scale(0.98);
+  }
+}
+
+.el-dropdown__popper.el-popper,
+.el-select__popper.el-popper {
+  transition:
+    opacity var(--dsms-duration-short) var(--dsms-ease-out-expo),
+    transform var(--dsms-duration-short) var(--dsms-ease-out-expo) !important;
+}
+
+.el-card {
+  transition:
+    box-shadow var(--dsms-duration-medium) var(--dsms-ease-out-expo),
+    border-color var(--dsms-duration-short) var(--dsms-ease-standard);
+}
+
+/* 首屏内容轻量上浮（挂载节点加 class） */
+@keyframes dsms-content-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dsms-animate-content-in {
+  animation: dsms-content-rise var(--dsms-duration-medium) var(--dsms-ease-out-expo) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsms-animate-content-in {
+    animation: none;
+  }
+}
+
+/* 控制台 / 登录等：同 keyframe、错开 delay 的分层入场 */
+@keyframes dsms-stagger-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dsms-animate-stagger-0 {
+  animation: dsms-stagger-fade-up var(--dsms-duration-medium) var(--dsms-ease-out-expo) 0s both;
+}
+
+.dsms-animate-stagger-1 {
+  animation: dsms-stagger-fade-up var(--dsms-duration-medium) var(--dsms-ease-out-expo) 0.08s both;
+}
+
+.dsms-animate-stagger-2 {
+  animation: dsms-stagger-fade-up var(--dsms-duration-medium) var(--dsms-ease-out-expo) 0.16s both;
+}
+
+.dsms-animate-stagger-3 {
+  animation: dsms-stagger-fade-up var(--dsms-duration-medium) var(--dsms-ease-out-expo) 0.24s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsms-animate-stagger-0,
+  .dsms-animate-stagger-1,
+  .dsms-animate-stagger-2,
+  .dsms-animate-stagger-3 {
+    animation: none;
+  }
+}
+
+/* Dashboard 壳层首屏（由页面 scoped 引用 animation-name） */
+@keyframes dsms-shell-topbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dsms-aside-shell-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes dsms-main-shell-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* —— 深色模式：极深藏青（近黑）+ 浅色字；EP dark/css-vars 叠加 —— */
+html.dark {
+  color-scheme: dark;
+  --dsms-glass-bg: rgba(12, 18, 34, 0.82);
+  --dsms-glass-bg-strong: rgba(10, 16, 32, 0.94);
+  --dsms-glass-border: rgba(148, 163, 184, 0.08);
+  --dsms-glass-border-subtle: rgba(71, 85, 105, 0.55);
+  --dsms-glass-shadow: 0 8px 40px rgba(0, 4, 12, 0.55);
+
+  --dsms-page-bg: #05080f;
+  --dsms-text: #f1f5f9;
+  --dsms-text-secondary: #94a3b8;
+  --workspace-border: #273655;
+  --workspace-surface: #0e1628;
+  --workspace-surface-2: #0a1020;
+  --dsms-aside-surface: #0c1222;
+
+  --el-color-primary: #cbd5e1;
+  --el-color-primary-light-3: #94a3b8;
+  --el-color-primary-light-5: #64748b;
+  --el-color-primary-light-7: #475569;
+  --el-color-primary-light-8: #334155;
+  --el-color-primary-light-9: #1e293b;
+  --el-color-primary-dark-2: #f8fafc;
+  --dsms-focus-ring: rgba(226, 232, 240, 0.42);
+}
+
+html.dark body {
+  background-image:
+    radial-gradient(900px 520px at 14% -8%, rgba(99, 102, 241, 0.09) 0%, transparent 55%),
+    radial-gradient(720px 480px at 88% 4%, rgba(30, 58, 138, 0.22) 0%, transparent 52%);
+}
+
+html.dark header.dsms-portal-topbar {
+  border-bottom-color: var(--dsms-glass-border-subtle);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 4px 24px rgba(0, 0, 0, 0.35);
+}
+
+html.dark .dsms-glass-panel:hover {
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.5);
+}
+
+html.dark .el-dialog {
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55) !important;
+}
+
+html.dark .dsms-theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark header.dsms-portal-topbar .user-trigger {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--dsms-glass-border-subtle);
+}
+
+html.dark header.dsms-portal-topbar .user-trigger:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--workspace-border);
+  box-shadow: 0 4px 18px rgba(0, 6, 20, 0.35);
+}
+
+/* 登录页输入框（非 scoped 子节点）：深色下可读 */
+html.dark .login-page .login-form .el-input__wrapper {
+  background-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 1px var(--dsms-glass-border-subtle) inset;
+}
+
+html.dark .login-page .login-form .el-input__wrapper:hover {
+  background-color: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 0 0 1px rgba(100, 116, 139, 0.75) inset;
+}
+
+html.dark .login-page .login-form .el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 2px var(--dsms-focus-ring) inset;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+html.dark .login-skip-link {
+  background: var(--workspace-surface-2);
+  border-color: var(--dsms-text-secondary);
+}

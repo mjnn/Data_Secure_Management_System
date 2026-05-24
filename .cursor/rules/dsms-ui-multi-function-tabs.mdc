@@ -1,0 +1,12 @@
+---
+description: DSMS 前端多功能区须用 Tab 分隔
+globs: frontend/src/**/*.vue
+alwaysApply: false
+---
+
+# DSMS 页面多功能区：Tab 分隔
+
+- 同一视图内存在多个**平级**业务模块时，使用 **Element Plus `el-tabs` + `el-tab-pane`** 分组；**禁止**仅靠纵向多张 `el-card` 堆叠承担多个平级功能区。
+- **例外**：单一流程分步/向导、或同模块内 `el-alert`/折叠说明等，不强制顶层 Tab。
+- **Tab 文案用中文**；`name` 可用英文标识符。
+- 需要时 **URL query** 同步当前 Tab（刷新可恢复），与规格中前端约束一致。
