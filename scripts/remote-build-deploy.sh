@@ -22,7 +22,7 @@ else
   echo "Using synced source at ${REPO_DIR}"
 fi
 
-docker build -t "${IMAGE}" .
+docker build -f Dockerfile.runtime -t "${IMAGE}" .
 docker push "${IMAGE}"
 
 mkdir -p "${REMOTE_DIR}/data"
