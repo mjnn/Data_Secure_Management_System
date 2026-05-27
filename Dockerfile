@@ -1,5 +1,5 @@
 # DSMS 生产镜像：前端 build + FastAPI 单容器（静态资源 + API）
-FROM node:20-alpine AS frontend-build
+FROM registry.cn-hangzhou.aliyuncs.com/library/node:20-alpine AS frontend-build
 WORKDIR /app/frontend
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
