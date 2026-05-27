@@ -55,9 +55,9 @@ else
   sed -i "s|^IMAGE=.*|IMAGE=${IMAGE}|" .env.runtime
 fi
 
-docker compose --project-name dsms --env-file .env.runtime -f compose.yaml pull
-docker compose --project-name dsms --env-file .env.runtime -f compose.yaml up -d --remove-orphans
-docker compose --project-name dsms -f compose.yaml ps
+docker-compose -p dsms --env-file .env.runtime -f compose.yaml pull
+docker-compose -p dsms --env-file .env.runtime -f compose.yaml up -d --remove-orphans
+docker-compose -p dsms -f compose.yaml ps
 
 install -m 644 /tmp/dsms-locations.conf /etc/nginx/snippets/dsms-locations.conf
 if ! grep -q 'dsms-locations.conf' /etc/nginx/sites-enabled/default; then
