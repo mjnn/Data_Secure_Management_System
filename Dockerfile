@@ -9,7 +9,7 @@ ARG VITE_APP_BASE=/tools/dsms/
 ENV VITE_APP_BASE=${VITE_APP_BASE}
 RUN pnpm run build
 
-FROM python:3.12-slim AS runtime
+FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.12-slim AS runtime
 WORKDIR /app/backend
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
