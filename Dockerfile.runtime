@@ -1,15 +1,4 @@
-# DSMS 生产镜像：前端 build + FastAPI 单容器（静态资源 + API）
-FROM m.daocloud.io/docker.io/library/node:20-alpine AS frontend-build
-WORKDIR /app/frontend
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY ref/logo.png /app/ref/logo.png
-COPY frontend/ ./
-ARG VITE_APP_BASE=/tools/dsms/
-ENV VITE_APP_BASE=${VITE_APP_BASE}
-RUN pnpm run build
-
+# 在本地已执行 pnpm run build 后使用（跳过容器内前端编译，适合 ECS 资源紧张）
 FROM m.daocloud.io/docker.io/library/python:3.12-slim AS runtime
 WORKDIR /app/backend
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -26,7 +15,7 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/app ./app
-COPY --from=frontend-build /app/frontend/dist /app/static
+COPY frontend/dist /app/static
 
 RUN mkdir -p /app/data/uploads
 

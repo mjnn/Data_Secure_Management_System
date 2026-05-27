@@ -5,7 +5,9 @@ IMAGE=crpi-02k3y8iudey5q0vb.cn-shanghai.personal.cr.aliyuncs.com/mirror_ns/data_
 REMOTE_DIR=/srv/apps/dsms
 HOST_PORT=8002
 
-if [[ -d "${REPO_DIR}/.git" ]]; then
+if [[ -f "${REPO_DIR}/Dockerfile" ]]; then
+  cd "${REPO_DIR}"
+elif [[ -d "${REPO_DIR}/.git" ]]; then
   cd "${REPO_DIR}"
   git fetch origin
   git reset --hard origin/main
@@ -14,7 +16,11 @@ else
   git clone https://github.com/mjnn/Data_Secure_Management_System.git "${REPO_DIR}"
   cd "${REPO_DIR}"
 fi
-git log -1 --oneline
+if [[ -d "${REPO_DIR}/.git" ]]; then
+  git -C "${REPO_DIR}" log -1 --oneline
+else
+  echo "Using synced source at ${REPO_DIR}"
+fi
 
 docker build -t "${IMAGE}" .
 docker push "${IMAGE}"
