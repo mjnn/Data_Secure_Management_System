@@ -2,14 +2,12 @@
   <section class="sss dsms-glass-panel dsms-animate-stagger-0" aria-labelledby="sss-title">
     <header class="sss__header dsms-animate-stagger-1">
       <h2 id="sss-title" class="sss__title">填报情况</h2>
-      <p v-if="!me" class="sss__lead">正在加载当前用户…</p>
-      <p v-else class="sss__lead">
-        汇总当前项目下各<strong>业务功能</strong>与<strong>填报任务</strong>的状态；统计口径为前端模拟，与
-        <code class="sss__code">sessionStorage</code> 中任务数据同步。可选<strong>饼图 / 柱状图</strong>展示分布。
+      <p class="sss__lead">
+        汇总当前项目下各<strong>业务功能</strong>与<strong>填报任务</strong>的状态；数据来自后端任务与业务功能接口，统计口径与「填报任务管理」一致。
       </p>
     </header>
 
-    <template v-if="me && isSecOrAdmin">
+    <template v-if="meReady && isSecOrAdmin">
       <el-row :gutter="12" class="sss__stats dsms-animate-stagger-2">
         <el-col v-for="card in statCards" :key="card.key" :xs="24" :sm="12" :md="8" :lg="4">
           <el-card shadow="hover" class="sss__stat-card">
@@ -30,7 +28,7 @@
       <div ref="chartRef" class="sss__chart" role="img" aria-label="填报情况统计图" />
 
       <h3 class="sss__h3">填报任务明细</h3>
-      <p class="sss__sub">当前全部任务行；任务状态、填报与审核列由模拟数据推导。</p>
+      <p class="sss__sub">当前全部任务行；任务状态、填报与审核列由 API 数据推导。</p>
       <el-table class="sss__table" :data="taskRows" row-key="id" border stripe size="small">
         <el-table-column prop="id" label="ID" width="64" align="center" />
         <el-table-column label="业务功能" min-width="120" show-overflow-tooltip>
@@ -71,19 +69,24 @@
 import * as echarts from "echarts";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
-import api from "../api";
+import { useCurrentUser } from "../composables/useCurrentUser.js";
+import { submissionFunctionName } from "../data/submissionTasksMock";
+import { ensurePortalTenantReady, usePortalTenantContext } from "../composables/usePortalTenantContext.js";
 import {
-  loadSubmissionTasksMerged,
-  MOCK_SUBMISSION_FUNCTIONS,
-  submissionFunctionName
-} from "../data/submissionTasksMock";
-import { SUBMISSION_TASKS_PERSIST_EVENT } from "../composables/useSubmissionTaskFoReminderCount";
+  fetchBusinessFunctions,
+  fetchSubmissionTasks,
+  PORTAL_DATA_REFRESH_EVENT
+} from "../api/portalApi.js";
 import { effectivePlatformRole, PLATFORM_ROLE } from "../composables/usePortalMenuVisibility";
 import { ElMessage } from "element-plus";
 
 const router = useRouter();
-const me = ref(null);
+const { tenantId, spaceId, ready } = usePortalTenantContext();
+const { user: me, ready: meReady, ensureCurrentUser } = useCurrentUser();
+
+ensureCurrentUser();
 const tasks = ref([]);
+const functions = ref([]);
 const chartRef = ref(null);
 const chartType = ref("pie");
 const chartInstance = shallowRef(null);
@@ -94,8 +97,18 @@ const isSecOrAdmin = computed(() => {
   return r === PLATFORM_ROLE.SYSTEM_ADMIN || r === PLATFORM_ROLE.SECURITY_FO;
 });
 
-function reloadTasks() {
-  tasks.value = loadSubmissionTasksMerged();
+async function reloadTasks() {
+  if (!ready.value || !tenantId.value) return;
+  try {
+    const [fnList, taskList] = await Promise.all([
+      fetchBusinessFunctions(tenantId.value, spaceId.value),
+      fetchSubmissionTasks(tenantId.value, spaceId.value)
+    ]);
+    functions.value = fnList;
+    tasks.value = taskList;
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "加载填报情况失败");
+  }
 }
 
 function computeDashboardStats(tlist, functions) {
@@ -126,7 +139,7 @@ function computeDashboardStats(tlist, functions) {
   return { unboundFo, noTaskFn, notDispatched, fillIncomplete, filledPendingAudit, auditDone };
 }
 
-const stats = computed(() => computeDashboardStats(tasks.value, MOCK_SUBMISSION_FUNCTIONS));
+const stats = computed(() => computeDashboardStats(tasks.value, functions.value));
 
 const statCards = computed(() => {
   const s = stats.value;
@@ -154,8 +167,8 @@ const chartSeriesData = computed(() => {
   ];
 });
 
-function taskBucketAndLabels(t) {
-  const fn = MOCK_SUBMISSION_FUNCTIONS.find((f) => f.id === t.functionId);
+function taskBucketAndLabels(t, fnList) {
+  const fn = fnList.find((f) => f.id === t.functionId);
   if (fn && !fn.functionFoBound) {
     return {
       bucketLabel: "未绑定FO（该功能无绑定功能 FO）",
@@ -204,7 +217,7 @@ const taskRows = computed(() =>
   [...tasks.value]
     .sort((a, b) => b.id - a.id)
     .map((t) => {
-      const extra = taskBucketAndLabels(t);
+      const extra = taskBucketAndLabels(t, functions.value);
       return {
         id: t.id,
         functionName: submissionFunctionName(t.functionId),
@@ -271,26 +284,18 @@ function goDetail(id) {
   router.push({ name: "dashboard-submission-task-detail", params: { taskId: String(id) } });
 }
 
-const loadMe = async () => {
-  try {
-    const { data } = await api.get("/api/v1/users/me");
-    me.value = data;
-    const role = effectivePlatformRole(data);
-    if (role !== PLATFORM_ROLE.SYSTEM_ADMIN && role !== PLATFORM_ROLE.SECURITY_FO) {
-      ElMessage.warning("当前角色无权访问填报情况。");
-      await router.replace({ name: "dashboard-home" });
-    }
-  } catch {
-    /* 未登录由全局守卫处理 */
-  }
-};
-
 onMounted(async () => {
-  reloadTasks();
-  await loadMe();
-  window.addEventListener(SUBMISSION_TASKS_PERSIST_EVENT, reloadTasks);
+  await Promise.all([ensureCurrentUser(), ensurePortalTenantReady()]);
+  const role = effectivePlatformRole(me.value);
+  if (role !== PLATFORM_ROLE.SYSTEM_ADMIN && role !== PLATFORM_ROLE.SECURITY_FO) {
+    ElMessage.warning("当前角色无权访问填报情况。");
+    await router.replace({ name: "dashboard-home" });
+    return;
+  }
+  await reloadTasks();
   await nextTick();
   applyChartOption();
+  window.addEventListener(PORTAL_DATA_REFRESH_EVENT, reloadTasks);
   window.addEventListener("resize", resizeChart);
   if (chartRef.value && typeof ResizeObserver !== "undefined") {
     const ro = new ResizeObserver(() => resizeChart());
@@ -308,7 +313,7 @@ watch(tasks, () => {
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener(SUBMISSION_TASKS_PERSIST_EVENT, reloadTasks);
+  window.removeEventListener(PORTAL_DATA_REFRESH_EVENT, reloadTasks);
   window.removeEventListener("resize", resizeChart);
   chartResizeObserver.value?.disconnect();
   chartResizeObserver.value = null;

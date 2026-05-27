@@ -24,6 +24,7 @@ frontend/.vite/
 .env
 .env.*
 !.env.example
+!deploy/.env.runtime.example
 
 # SQLite databases (local dev / test)
 *.db
@@ -33,6 +34,10 @@ frontend/.vite/
 *.sqlite-shm
 *.sqlite-wal
 *.sqlite3
+
+# Uploaded documents (DSMS_UPLOAD_ROOT)
+backend/uploads/
+uploads/
 
 # IDE & OS
 .idea/
@@ -47,3 +52,6 @@ desktop.ini
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# ECS runtime secrets (on server only)
+deploy/.env.runtime

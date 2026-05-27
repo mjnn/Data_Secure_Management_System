@@ -158,6 +158,8 @@ import { ElMessage } from "element-plus";
 import PortalBrandLogo from "../components/PortalBrandLogo.vue";
 import ThemeToggleControl from "../components/ThemeToggleControl.vue";
 import api from "../api";
+import { clearCurrentUser } from "../composables/useCurrentUser.js";
+import { resetPortalTenantContext } from "../composables/usePortalTenantContext.js";
 
 const router = useRouter();
 const loading = ref(false);
@@ -200,6 +202,8 @@ const onSubmit = async () => {
   loading.value = true;
   try {
     const { data } = await api.post("/api/v1/auth/login", form);
+    clearCurrentUser();
+    resetPortalTenantContext();
     localStorage.setItem("dsms_access_token", data.access_token);
     localStorage.setItem("dsms_refresh_token", data.refresh_token);
     statusMessage.value = "登录成功，正在进入系统。";

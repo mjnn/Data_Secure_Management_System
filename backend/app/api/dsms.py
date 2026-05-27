@@ -30,6 +30,8 @@ from app.models import (
     RelevanceAssessmentAnswer,
     RelevanceAssessmentSubmission,
     RelevanceRule,
+    SensitivityLevel,
+    TaxonomyLevel,
     Tenant,
     TenantCreatorAllowlist,
     TenantMembership,
@@ -37,6 +39,8 @@ from app.models import (
     User,
 )
 from app.schemas import (
+    PlatformUsersBatchDeactivateIn,
+    PlatformUsersPlatformRoleIn,
     BusinessFunctionOptionOut,
     BusinessFunctionOptionRequestCreateIn,
     BusinessFunctionOptionRequestOut,
@@ -70,6 +74,10 @@ from app.schemas import (
     RelevanceAssessmentAnswerIn,
     RelevanceRuleIn,
     RelevanceRuleOut,
+    SensitivityLevelOut,
+    TaxonomyLevelCreateIn,
+    TaxonomyLevelOut,
+    TaxonomyLevelUpdateIn,
     SpaceCreateIn,
     SpaceDeleteIn,
     SpaceOut,
@@ -250,6 +258,78 @@ def import_users_excel(
     }
 
 
+@router.post(
+    "/platform/users/batch-deactivate",
+    description="权限：super_admin。批量停用用户账号（不可停用超管与当前登录账号）。",
+)
+def batch_deactivate_users(
+    payload: PlatformUsersBatchDeactivateIn,
+    current_user: User = Depends(require_super_admin),
+    session: Session = Depends(get_session),
+):
+    deactivated: list[int] = []
+    skipped_items: list[dict] = []
+    for user_id in payload.user_ids:
+        user = session.get(User, user_id)
+        if not user:
+            skipped_items.append({"user_id": user_id, "reason": "用户不存在"})
+            continue
+        if user.id == current_user.id:
+            skipped_items.append({"user_id": user_id, "reason": "不能停用当前登录账号"})
+            continue
+        if user.is_superuser:
+            skipped_items.append({"user_id": user_id, "reason": "不能停用超级管理员"})
+            continue
+        if not user.is_active:
+            skipped_items.append({"user_id": user_id, "reason": "账号已停用"})
+            continue
+        user.is_active = False
+        session.add(user)
+        deactivated.append(user_id)
+    session.commit()
+    return {
+        "deactivated_user_ids": deactivated,
+        "skipped_items": skipped_items,
+        "behavior_key": "dsms-platform-users-batch-deactivate",
+    }
+
+
+@router.put(
+    "/platform/users/batch-platform-role",
+    description="权限：super_admin。批量设置门户 platform_role（不可修改超级管理员）。",
+)
+def batch_set_platform_role(
+    payload: PlatformUsersPlatformRoleIn,
+    _: User = Depends(require_super_admin),
+    session: Session = Depends(get_session),
+):
+    allowed = {"system_admin", "security_fo", "function_fo"}
+    role = (payload.platform_role or "").strip()
+    if role not in allowed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="无效的平台角色")
+
+    updated: list[int] = []
+    skipped_items: list[dict] = []
+    for user_id in payload.user_ids:
+        user = session.get(User, user_id)
+        if not user:
+            skipped_items.append({"user_id": user_id, "reason": "用户不存在"})
+            continue
+        if user.is_superuser:
+            skipped_items.append({"user_id": user_id, "reason": "超级管理员不可修改平台角色"})
+            continue
+        user.platform_role = role
+        session.add(user)
+        updated.append(user_id)
+    session.commit()
+    return {
+        "updated_user_ids": updated,
+        "skipped_items": skipped_items,
+        "platform_role": role,
+        "behavior_key": "dsms-platform-users-batch-platform-role",
+    }
+
+
 @router.get(
     "/tenants",
     response_model=Page,
@@ -317,6 +397,8 @@ def list_users(
             full_name=user.full_name,
             department=user.department,
             is_active=user.is_active,
+            is_superuser=user.is_superuser,
+            platform_role=user.platform_role or "security_fo",
             created_at=user.created_at,
         )
         if membership_preview_tenant_id:
@@ -386,6 +468,27 @@ def patch_tenant(
     session.commit()
     session.refresh(tenant)
     return TenantOut.model_validate(tenant, from_attributes=True)
+
+
+@router.delete(
+    "/tenants/{tenant_id}",
+    description="权限：super_admin。删除项目及其成员与全部空间数据（不可恢复）；默认项目（slug=default）不可删。",
+)
+def delete_tenant(
+    tenant_id: int,
+    _: User = Depends(require_super_admin),
+    session: Session = Depends(get_session),
+):
+    from app.services.tenant_delete_service import delete_tenant_cascade
+
+    result = delete_tenant_cascade(session, tenant_id)
+    if not result.get("ok"):
+        reason = result.get("reason")
+        if reason == "not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result.get("message"))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("message"))
+    session.commit()
+    return {"deleted_tenant_id": tenant_id, "behavior_key": "dsms-tenant-delete"}
 
 
 @router.post(
@@ -718,6 +821,8 @@ def update_question(
     item.question_type = payload.question_type
     item.is_required = payload.is_required
     item.sort_order = payload.sort_order
+    if payload.options_json is not None:
+        item.options_json = payload.options_json
     item.updated_at = datetime.now(timezone.utc)
     session.add(item)
     session.commit()
@@ -1032,6 +1137,154 @@ def delete_lifecycle_field_config(
 
 
 @router.get(
+    "/tenants/{tenant_id}/spaces/{space_id}/sensitivity-levels",
+    response_model=Page,
+    description="权限：tenant_member。密级定义列表。",
+)
+def list_sensitivity_levels(
+    tenant_id: int,
+    space_id: int,
+    skip: int = 0,
+    limit: int = Query(default=20),
+    _: User = Depends(require_tenant_member),
+    session: Session = Depends(get_session),
+):
+    limit = page_limit(limit)
+    stmt = select(SensitivityLevel).where(
+        SensitivityLevel.tenant_id == tenant_id,
+        SensitivityLevel.project_space_id == space_id,
+    )
+    total = session.exec(select(func.count()).select_from(stmt.subquery())).one()
+    items = session.exec(stmt.order_by(SensitivityLevel.sort_order, SensitivityLevel.id).offset(skip).limit(limit)).all()
+    return {
+        "total": total,
+        "items": [SensitivityLevelOut.model_validate(i, from_attributes=True).model_dump() for i in items],
+    }
+
+
+@router.get(
+    "/tenants/{tenant_id}/spaces/{space_id}/taxonomy-levels",
+    response_model=Page,
+    description="权限：tenant_member。分类树层级列表。",
+)
+def list_taxonomy_levels(
+    tenant_id: int,
+    space_id: int,
+    skip: int = 0,
+    limit: int = Query(default=20),
+    _: User = Depends(require_tenant_member),
+    session: Session = Depends(get_session),
+):
+    limit = page_limit(limit)
+    stmt = select(TaxonomyLevel).where(
+        TaxonomyLevel.tenant_id == tenant_id,
+        TaxonomyLevel.project_space_id == space_id,
+    )
+    total = session.exec(select(func.count()).select_from(stmt.subquery())).one()
+    items = session.exec(
+        stmt.order_by(TaxonomyLevel.sort_order, TaxonomyLevel.level).offset(skip).limit(limit)
+    ).all()
+    return {
+        "total": total,
+        "items": [TaxonomyLevelOut.model_validate(i, from_attributes=True).model_dump() for i in items],
+    }
+
+
+@router.post(
+    "/tenants/{tenant_id}/spaces/{space_id}/taxonomy-levels",
+    response_model=TaxonomyLevelOut,
+    description="权限：tenant_admin+。创建分类树层级。",
+)
+def create_taxonomy_level(
+    tenant_id: int,
+    space_id: int,
+    payload: TaxonomyLevelCreateIn,
+    _: User = Depends(require_tenant_admin),
+    session: Session = Depends(get_session),
+):
+    space = session.get(ProjectSpace, space_id)
+    if not space or space.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="空间不存在")
+    dup = session.exec(
+        select(TaxonomyLevel).where(
+            TaxonomyLevel.tenant_id == tenant_id,
+            TaxonomyLevel.project_space_id == space_id,
+            TaxonomyLevel.level == payload.level,
+        )
+    ).first()
+    if dup:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"分类级 {payload.level} 已存在")
+    row = TaxonomyLevel(
+        tenant_id=tenant_id,
+        project_space_id=space_id,
+        level=payload.level,
+        name=payload.name,
+        description=payload.description,
+        sort_order=payload.sort_order,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return TaxonomyLevelOut.model_validate(row, from_attributes=True)
+
+
+@router.put(
+    "/tenants/{tenant_id}/spaces/{space_id}/taxonomy-levels/{level_id}",
+    response_model=TaxonomyLevelOut,
+    description="权限：tenant_admin+。更新分类树层级。",
+)
+def update_taxonomy_level(
+    tenant_id: int,
+    space_id: int,
+    level_id: int,
+    payload: TaxonomyLevelUpdateIn,
+    _: User = Depends(require_tenant_admin),
+    session: Session = Depends(get_session),
+):
+    row = session.get(TaxonomyLevel, level_id)
+    if not row or row.tenant_id != tenant_id or row.project_space_id != space_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="分类树层级不存在")
+    dup = session.exec(
+        select(TaxonomyLevel).where(
+            TaxonomyLevel.tenant_id == tenant_id,
+            TaxonomyLevel.project_space_id == space_id,
+            TaxonomyLevel.level == payload.level,
+            TaxonomyLevel.id != level_id,
+        )
+    ).first()
+    if dup:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"分类级 {payload.level} 已被占用")
+    row.level = payload.level
+    row.name = payload.name
+    row.description = payload.description
+    row.sort_order = payload.sort_order
+    row.updated_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return TaxonomyLevelOut.model_validate(row, from_attributes=True)
+
+
+@router.delete(
+    "/tenants/{tenant_id}/spaces/{space_id}/taxonomy-levels/{level_id}",
+    description="权限：tenant_admin+。删除分类树层级。",
+)
+def delete_taxonomy_level(
+    tenant_id: int,
+    space_id: int,
+    level_id: int,
+    _: User = Depends(require_tenant_admin),
+    session: Session = Depends(get_session),
+):
+    row = session.get(TaxonomyLevel, level_id)
+    if not row or row.tenant_id != tenant_id or row.project_space_id != space_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="分类树层级不存在")
+    session.delete(row)
+    session.commit()
+    return {"deleted_id": level_id, "behavior_key": "taxonomy-levels/delete"}
+
+
+@router.get(
     "/tenants/{tenant_id}/spaces/{space_id}/field-catalog",
     response_model=Page,
     description="权限：tenant_member / tenant_admin（同项目）或 super_admin。字段主表分页列表。",
@@ -1095,6 +1348,25 @@ def update_field_catalog(
     session.commit()
     session.refresh(item)
     return FieldCatalogOut.model_validate(item, from_attributes=True)
+
+
+@router.delete(
+    "/tenants/{tenant_id}/spaces/{space_id}/field-catalog/{entry_id}",
+    description="权限：tenant_admin（同项目）或 super_admin。删除字段主表条目。",
+)
+def delete_field_catalog(
+    tenant_id: int,
+    space_id: int,
+    entry_id: int,
+    _: User = Depends(require_tenant_admin),
+    session: Session = Depends(get_session),
+):
+    item = session.get(FieldCatalogEntry, entry_id)
+    if not item or item.tenant_id != tenant_id or item.project_space_id != space_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="字段条目不存在")
+    session.delete(item)
+    session.commit()
+    return {"deleted_id": entry_id, "behavior_key": "field-catalog"}
 
 
 @router.post(

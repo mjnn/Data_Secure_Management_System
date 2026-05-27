@@ -50,6 +50,15 @@ class TenantCreatorUpdate(BaseModel):
     user_ids: list[int]
 
 
+class PlatformUsersBatchDeactivateIn(BaseModel):
+    user_ids: list[int]
+
+
+class PlatformUsersPlatformRoleIn(BaseModel):
+    user_ids: list[int]
+    platform_role: str
+
+
 class TenantCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     slug: Optional[str] = Field(default=None, max_length=100)
@@ -89,6 +98,8 @@ class UserDirectoryOut(BaseModel):
     full_name: Optional[str]
     department: Optional[str]
     is_active: bool
+    is_superuser: bool = False
+    platform_role: str = "security_fo"
     created_at: datetime
     in_tenant: Optional[bool] = None
     tenant_role: Optional[str] = None
@@ -129,17 +140,19 @@ class SpaceOut(BaseModel):
 class QuestionCreateIn(BaseModel):
     key: str
     title: str
-    question_type: str = "text"
+    question_type: str = "single_select"
     is_required: bool = False
     sort_order: int = 0
+    options_json: Optional[str] = None
 
 
 class QuestionUpdateIn(BaseModel):
     id: int
     title: str
-    question_type: str = "text"
+    question_type: str = "single_select"
     is_required: bool = False
     sort_order: int = 0
+    options_json: Optional[str] = None
 
 
 class QuestionDeleteIn(BaseModel):
@@ -155,6 +168,9 @@ class QuestionOut(BaseModel):
     question_type: str
     is_required: bool
     sort_order: int
+    options_json: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class TaxonomyNodeCreateIn(BaseModel):
@@ -189,6 +205,39 @@ class RelevanceRuleOut(BaseModel):
     tenant_id: int
     project_space_id: int
     expression: str
+
+
+class SensitivityLevelOut(BaseModel):
+    id: int
+    code: str
+    label: str
+    description: Optional[str] = None
+    sort_order: int
+
+
+class TaxonomyLevelCreateIn(BaseModel):
+    level: int
+    name: str
+    description: Optional[str] = None
+    sort_order: int = 0
+
+
+class TaxonomyLevelUpdateIn(BaseModel):
+    level: int
+    name: str
+    description: Optional[str] = None
+    sort_order: int = 0
+
+
+class TaxonomyLevelOut(BaseModel):
+    id: int
+    tenant_id: int
+    project_space_id: int
+    level: int
+    name: str
+    description: Optional[str] = None
+    sort_order: int
+    updated_at: datetime
 
 
 class RelevanceAssessmentAnswerIn(BaseModel):
@@ -237,6 +286,7 @@ class LifecycleFieldConfigOut(BaseModel):
     field_key: str
     field_label: str
     field_type: str
+    is_builtin: bool = False
     is_required: bool
     options_json: Optional[str]
     validation_json: Optional[str]
@@ -266,6 +316,7 @@ class FieldCatalogOut(BaseModel):
     tenant_id: int
     project_space_id: int
     field_name: str
+    description: Optional[str] = None
     identifier_key: str
     data_type: str
     sensitivity_level: Optional[str]

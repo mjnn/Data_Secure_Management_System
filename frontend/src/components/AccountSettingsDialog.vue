@@ -119,11 +119,10 @@
 
         <el-form label-position="top" class="duty-form">
           <el-form-item label="登记负责功能（可多选多条，分别保存）">
-            <el-select
+            <dsms-filterable-select
               v-model="dutyFunctionKey"
-              placeholder="请选择您负责的功能"
+              placeholder="搜索并选择您负责的功能"
               clearable
-              filterable
               style="width: 100%"
             >
               <el-option
@@ -132,7 +131,7 @@
                 :label="opt.label"
                 :value="opt.value"
               />
-            </el-select>
+            </dsms-filterable-select>
           </el-form-item>
           <div class="duty-row">
             <el-button type="primary" :disabled="!dutyFunctionKey" @click="onRegisterDutyFunction">
@@ -187,6 +186,8 @@
 import { computed, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import api from "../api";
+import DsmsFilterableSelect from "./DsmsFilterableSelect.vue";
+import { useCurrentUser } from "../composables/useCurrentUser.js";
 import { effectivePlatformRole, PLATFORM_ROLE } from "../composables/usePortalMenuVisibility";
 
 const DUTY_STORAGE_PREFIX = "dsms_fo_duty_bindings_v1_";
@@ -207,7 +208,7 @@ const profileForm = reactive({
 });
 const savingProfile = ref(false);
 
-const currentUserMe = ref(null);
+const { user: currentUserMe, ensureCurrentUser, setCurrentUser } = useCurrentUser();
 const isFunctionFo = computed(
   () => effectivePlatformRole(currentUserMe.value) === PLATFORM_ROLE.FUNCTION_FO
 );
@@ -295,22 +296,16 @@ function persistDutyBindings() {
   }
 }
 
-const loadMe = async () => {
-  try {
-    const { data } = await api.get("/api/v1/users/me");
-    currentUserMe.value = data;
-    profileForm.username = data.username ?? "";
-    profileForm.email = data.email ?? "";
-    profileForm.full_name = data.full_name ?? "";
-    profileForm.department = data.department ?? "";
-    loadDutyBindings();
-  } catch (error) {
-    const detail = error.response?.data?.detail;
-    ElMessage.error(typeof detail === "string" ? detail : "加载账号信息失败");
-  }
-};
+function syncProfileFormFromUser(data) {
+  if (!data) return;
+  profileForm.username = data.username ?? "";
+  profileForm.email = data.email ?? "";
+  profileForm.full_name = data.full_name ?? "";
+  profileForm.department = data.department ?? "";
+  loadDutyBindings();
+}
 
-const onOpen = () => {
+const onOpen = async () => {
   activeTab.value = "profile";
   passwordForm.old_password = "";
   passwordForm.new_password = "";
@@ -318,7 +313,12 @@ const onOpen = () => {
   dutyFunctionKey.value = "";
   applyDialogVisible.value = false;
   resetApplyForm();
-  loadMe();
+  const data = await ensureCurrentUser();
+  if (data) {
+    syncProfileFormFromUser(data);
+  } else {
+    ElMessage.error("加载账号信息失败");
+  }
 };
 
 const onRegisterDutyFunction = () => {
@@ -394,7 +394,8 @@ const onSaveProfile = async () => {
       full_name: profileForm.full_name,
       department: profileForm.department
     });
-    currentUserMe.value = data;
+    setCurrentUser(data);
+    syncProfileFormFromUser(data);
     ElMessage.success("基本信息已更新");
     emit("profile-updated", data);
   } catch (error) {

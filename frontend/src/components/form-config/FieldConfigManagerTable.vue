@@ -19,9 +19,13 @@
     </el-table-column>
     <el-table-column label="展示形式" width="160">
       <template #default="scope">
-        <el-select v-model="scope.row.input_type" style="width: 100%" :disabled="isRowStructureLocked(scope.row)">
+        <dsms-filterable-select
+          v-model="scope.row.input_type"
+          style="width: 100%"
+          :disabled="isRowStructureLocked(scope.row)"
+        >
           <el-option v-for="item in inputTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
+        </dsms-filterable-select>
       </template>
     </el-table-column>
     <el-table-column label="填写说明" min-width="260">
@@ -153,6 +157,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
+import DsmsFilterableSelect from "../DsmsFilterableSelect.vue";
 import SelectOptionValuesEditor from "./SelectOptionValuesEditor.vue";
 import { FIELD_CONFIG_MANAGER_ORDER_HINT_DEFAULT } from "./fieldConfigManagerConstants.js";
 

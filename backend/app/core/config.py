@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     tenant_admin_user_directory_scope: str = Field(default="all", alias="TENANT_ADMIN_USER_DIRECTORY_SCOPE")
     test_security_fo_password: str = Field(default="SecurityFo123456", alias="TEST_SECURITY_FO_PASSWORD")
     test_function_fo_password: str = Field(default="FunctionFo123456", alias="TEST_FUNCTION_FO_PASSWORD")
+    upload_root: str = Field(default="./uploads", alias="DSMS_UPLOAD_ROOT")
+    upload_max_bytes: int = Field(default=20 * 1024 * 1024, alias="DSMS_UPLOAD_MAX_BYTES")
 
 
 settings = Settings()

@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 export default defineConfig({
+  base: process.env.VITE_APP_BASE || "/",
   plugins: [vue()],
   resolve: {
     alias: {

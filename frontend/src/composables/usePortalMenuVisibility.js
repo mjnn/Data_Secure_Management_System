@@ -18,7 +18,7 @@ export function effectivePlatformRole(me) {
 
 /**
  * 规则：
- * - 系统管理员：全部（含「项目管理」「填报管理」下各子项）
+ * - 系统管理员：全部模块（含「项目管理」「填报管理」、规则管理等）；除非产品单独说明某入口仅 FO
  * - 数据安全 FO：含「用户管理」「填报管理」（填报情况 + **填报任务管理**）；**不含**「项目管理」
  * - 功能 FO：含「填报管理」下 **仅「填报任务管理」**（不含「填报情况」）；其余同原字段/文档/审批等入口
  */
@@ -39,6 +39,19 @@ export function menuVisibilityForRole(role) {
     fieldLifecycle: secOrAdmin,
     fieldCatalog: true,
     ruleGovernance: secOrAdmin,
+    /** 功能数据安全相关性（模块内步骤切换）：数据安全 FO + 系统管理员 */
+    ruleRelevance: secOrAdmin,
+    ruleRelevanceQuestionnaire: secOrAdmin,
+    ruleRelevanceStandardExpression: secOrAdmin,
+    /** 数据分类标准（模块内步骤切换） */
+    ruleTaxonomy: secOrAdmin,
+    ruleTaxonomyLevels: secOrAdmin,
+    ruleTaxonomyNodes: secOrAdmin,
+    ruleTaxonomyFieldClassification: secOrAdmin,
+    /** 密级绑定：数据安全 FO + 系统管理员 */
+    ruleClassification: secOrAdmin,
+    /** 安全要求（模块内步骤切换） */
+    ruleSecurity: secOrAdmin,
     documentResource: true,
     approval: true
   };

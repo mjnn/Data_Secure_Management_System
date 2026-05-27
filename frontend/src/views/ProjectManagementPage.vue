@@ -3,8 +3,7 @@
     <header class="proj-mgmt__header dsms-animate-stagger-1">
       <h2 id="proj-mgmt-title" class="proj-mgmt__title">项目管理</h2>
       <p class="proj-mgmt__lead">
-        演示数据保存在浏览器会话中；新建/删除为前端模拟。对接后端后需与
-        <code class="proj-mgmt__code">/api/v1/dsms/tenants</code> 等接口对齐。
+        项目列表来自后端 <code class="proj-mgmt__code">/api/v1/dsms/tenants</code>；新建后导入治理种子，可选从来源项目复制字段/规则配置与成员。
       </p>
     </header>
 
@@ -89,7 +88,7 @@
           <el-checkbox v-model="createForm.copyMembers">人员配置</el-checkbox>
           <el-checkbox v-model="createForm.copySubmissionAudited">完成审核的填报数据</el-checkbox>
           <p class="proj-mgmt__form-hint">
-            勾选后须指定来源项目；保存时仅前端记录勾选项，实际克隆由后端实现。「完成审核的填报数据」指来源项目中已审核通过（或等价终态）的填报记录，与填报任务子系统对齐后由接口定义范围。
+            勾选后须指定来源项目。「字段/规则」通过空间配置导出/导入；「人员」批量加入；「完成审核的填报数据」复制 audit_status=approved 的任务（建议同时复制字段配置，且目标空间须含同名业务功能）。
           </p>
         </el-form-item>
         <el-form-item
@@ -102,19 +101,18 @@
           label="来源项目"
           prop="sourceProjectId"
         >
-          <el-select
+          <dsms-filterable-select
             v-model="createForm.sourceProjectId"
-            placeholder="请选择要复制的项目"
-            filterable
+            placeholder="搜索并选择要复制的项目"
             style="width: 100%"
           >
             <el-option v-for="p in projects" :key="p.id" :label="`${p.name}（${p.slug}）`" :value="p.id" />
-          </el-select>
+          </dsms-filterable-select>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitCreate">创建</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">创建</el-button>
       </template>
     </el-dialog>
   </section>
@@ -124,37 +122,29 @@
 import { ElMessage, ElMessageBox } from "element-plus";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import api from "../api";
+import DsmsFilterableSelect from "../components/DsmsFilterableSelect.vue";
+import { useCurrentUser } from "../composables/useCurrentUser.js";
+import {
+  batchAddTenantMembers,
+  copyApprovedSubmissionTasks,
+  createTenant,
+  deleteTenant,
+  exportSpaceConfig,
+  fetchSpaces,
+  fetchTenantMembers,
+  fetchTenants,
+  importSpaceConfigToTarget,
+  importTenantSeeds
+} from "../api/dsmsSpaceApi.js";
+import { usePortalTenantContext } from "../composables/usePortalTenantContext.js";
 import { effectivePlatformRole, PLATFORM_ROLE } from "../composables/usePortalMenuVisibility";
 
-const STORAGE_KEY = "dsms_portal_mock_projects_v1";
-
-const SEED_PROJECTS = [
-  {
-    id: 1,
-    name: "默认项目",
-    slug: "default",
-    createdAt: "2025-11-01",
-    copyMeta: null
-  },
-  {
-    id: 2,
-    name: "演示项目 B",
-    slug: "demo-b",
-    createdAt: "2025-11-05",
-    copyMeta: null
-  },
-  {
-    id: 3,
-    name: "动力总成研发",
-    slug: "powertrain-rd",
-    createdAt: "2025-12-01",
-    copyMeta: null
-  }
-];
-
+const { tenantId: activeTenantId, refreshTenants, switchTenant, tenants: portalTenants } =
+  usePortalTenantContext();
 const router = useRouter();
-const me = ref(null);
+const { user: me, ensureCurrentUser } = useCurrentUser();
+
+ensureCurrentUser();
 const projects = ref([]);
 const searchQuery = ref("");
 const appliedQuery = ref("");
@@ -165,6 +155,7 @@ const pagination = reactive({
 });
 
 const createVisible = ref(false);
+const creating = ref(false);
 const createFormRef = ref(null);
 const createForm = reactive({
   name: "",
@@ -229,28 +220,11 @@ watch(
   }
 );
 
-function loadProjects() {
+async function loadProjects() {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length) {
-        projects.value = parsed;
-        return;
-      }
-    }
-  } catch (_e) {
-    /* ignore */
-  }
-  projects.value = SEED_PROJECTS.map((p) => ({ ...p, copyMeta: p.copyMeta ? { ...p.copyMeta } : null }));
-  persistProjects();
-}
-
-function persistProjects() {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(projects.value));
-  } catch (_e) {
-    /* ignore */
+    projects.value = await fetchTenants();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "加载项目失败");
   }
 }
 
@@ -265,23 +239,15 @@ function copyTags(row) {
   return t;
 }
 
-const loadMe = async () => {
-  try {
-    const { data } = await api.get("/api/v1/users/me");
-    me.value = data;
-    const role = effectivePlatformRole(data);
-    if (role !== PLATFORM_ROLE.SYSTEM_ADMIN) {
-      ElMessage.warning("仅系统管理员可访问项目管理。");
-      await router.replace({ name: "dashboard-home" });
-    }
-  } catch {
-    /* 路由守卫处理未登录 */
+onMounted(async () => {
+  await ensureCurrentUser();
+  const role = effectivePlatformRole(me.value);
+  if (role !== PLATFORM_ROLE.SYSTEM_ADMIN) {
+    ElMessage.warning("仅系统管理员可访问项目管理。");
+    await router.replace({ name: "dashboard-home" });
+    return;
   }
-};
-
-onMounted(() => {
   loadProjects();
-  loadMe();
 });
 
 function applySearch() {
@@ -323,6 +289,34 @@ function makeSlug(name, explicit) {
   return `proj-${Date.now()}`;
 }
 
+async function resolveSpaceId(tenantId, preferSeed = false) {
+  if (preferSeed) {
+    const seed = await importTenantSeeds(tenantId);
+    if (seed?.space_id) return seed.space_id;
+  }
+  const spaces = await fetchSpaces(tenantId);
+  const hit = spaces.find((s) => s.space_key === "default-space") || spaces[0];
+  return hit?.id ?? null;
+}
+
+function filterConfigBundle(bundle, { copyFields, copyRules }) {
+  if (!bundle || typeof bundle !== "object") return bundle;
+  if (copyFields && copyRules) return bundle;
+  return {
+    version: bundle.version ?? 1,
+    exported_at: bundle.exported_at,
+    source_tenant_id: bundle.source_tenant_id,
+    source_project_space_id: bundle.source_project_space_id,
+    taxonomy_nodes: copyFields ? bundle.taxonomy_nodes || [] : [],
+    questionnaire_questions: copyFields ? bundle.questionnaire_questions || [] : [],
+    lifecycle_field_configs: copyFields ? bundle.lifecycle_field_configs || [] : [],
+    field_catalog_entries: copyFields ? bundle.field_catalog_entries || [] : [],
+    classification_matrices: copyRules ? bundle.classification_matrices || [] : [],
+    classification_rules: copyRules ? bundle.classification_rules || [] : [],
+    relevance_rule: copyRules ? bundle.relevance_rule ?? null : null
+  };
+}
+
 async function submitCreate() {
   const form = createFormRef.value;
   if (!form) return;
@@ -331,67 +325,119 @@ async function submitCreate() {
   } catch {
     return;
   }
-  const needCopy =
-    createForm.copyFields ||
-    createForm.copyRules ||
-    createForm.copyMembers ||
-    createForm.copySubmissionAudited;
+  const needCopyConfig = createForm.copyFields || createForm.copyRules;
+  const needCopyMembers = createForm.copyMembers;
+  const needCopySubmission = createForm.copySubmissionAudited;
+  const needCopy = needCopyConfig || needCopyMembers || needCopySubmission;
   if (needCopy && createForm.sourceProjectId == null) {
     ElMessage.warning("请选择来源项目。");
     return;
   }
-  const nextId = projects.value.reduce((m, p) => Math.max(m, p.id), 0) + 1;
-  const source = projects.value.find((p) => p.id === createForm.sourceProjectId);
   const slug = makeSlug(createForm.name, createForm.slug);
-  const dup = projects.value.some((p) => p.slug === slug);
-  if (dup) {
-    ElMessage.error("项目标识已存在，请更换。");
-    return;
-  }
-  const today = new Date().toISOString().slice(0, 10);
-  const copyMeta =
-    needCopy && source
-      ? {
-          sourceId: source.id,
-          sourceName: source.name,
-          fields: !!createForm.copyFields,
-          rules: !!createForm.copyRules,
-          members: !!createForm.copyMembers,
-          submissionAudited: !!createForm.copySubmissionAudited
+  const sourceId = createForm.sourceProjectId;
+  const copyMeta = needCopy
+    ? {
+        sourceName: projects.value.find((p) => p.id === sourceId)?.name || "",
+        fields: createForm.copyFields,
+        rules: createForm.copyRules,
+        members: createForm.copyMembers,
+        submissionAudited: createForm.copySubmissionAudited
+      }
+    : null;
+
+  creating.value = true;
+  try {
+    const tenant = await createTenant({ name: createForm.name.trim(), slug: slug || undefined });
+    const newTenantId = tenant.id;
+    const targetSpaceId = await resolveSpaceId(newTenantId, true);
+
+    if (needCopyConfig && sourceId != null && targetSpaceId) {
+      const sourceSpaceId = await resolveSpaceId(sourceId, false);
+      if (!sourceSpaceId) {
+        ElMessage.warning("来源项目尚无可用空间，已跳过配置复制。");
+      } else {
+        const bundle = await exportSpaceConfig(sourceId, sourceSpaceId);
+        const filtered = filterConfigBundle(bundle, {
+          copyFields: createForm.copyFields,
+          copyRules: createForm.copyRules
+        });
+        await importSpaceConfigToTarget(sourceId, sourceSpaceId, filtered, newTenantId, targetSpaceId);
+      }
+    }
+
+    if (needCopyMembers && sourceId != null) {
+      const members = await fetchTenantMembers(sourceId);
+      const userIds = members.map((m) => m.user_id).filter((id) => id != null);
+      if (userIds.length) {
+        const data = await batchAddTenantMembers(newTenantId, userIds);
+        const skipped = data.skipped_items?.length ?? 0;
+        if (skipped > 0) {
+          ElMessage.info(`成员复制：部分用户已存在或跳过（${skipped}）。`);
         }
-      : null;
-  const nameTrim = createForm.name.trim();
-  projects.value.push({
-    id: nextId,
-    name: nameTrim,
-    slug,
-    createdAt: today,
-    copyMeta
-  });
-  persistProjects();
-  createVisible.value = false;
-  const parts = [];
-  if (copyMeta?.fields) parts.push("字段配置");
-  if (copyMeta?.rules) parts.push("规则配置");
-  if (copyMeta?.members) parts.push("人员配置");
-  if (copyMeta?.submissionAudited) parts.push("完成审核的填报数据");
-  const copyHint = parts.length ? `（已记录将复制：${parts.join("、")}，来源「${source?.name}」）` : "";
-  ElMessage.success(`项目「${nameTrim}」已创建${copyHint}（模拟）`);
+      }
+    }
+
+    if (needCopySubmission && sourceId != null && targetSpaceId) {
+      const sourceSpaceId = await resolveSpaceId(sourceId, false);
+      if (!sourceSpaceId) {
+        ElMessage.warning("来源项目尚无可用空间，已跳过填报数据复制。");
+      } else {
+        const copyRes = await copyApprovedSubmissionTasks(
+          newTenantId,
+          targetSpaceId,
+          sourceId,
+          sourceSpaceId
+        );
+        const skipped = copyRes.skipped?.length ?? 0;
+        if (skipped > 0) {
+          ElMessage.info(`${copyRes.message || "已复制"}（${skipped} 条因目标缺少业务功能而跳过）`);
+        } else if ((copyRes.copied_count ?? 0) === 0) {
+          ElMessage.info("来源项目无已审核通过的填报任务，未复制填报数据。");
+        }
+      }
+    }
+
+    await loadProjects();
+    if (copyMeta) {
+      const row = projects.value.find((p) => p.id === newTenantId);
+      if (row) row.copyMeta = copyMeta;
+    }
+    await refreshTenants();
+    createVisible.value = false;
+    ElMessage.success(`项目「${createForm.name.trim()}」已创建`);
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "创建失败");
+  } finally {
+    creating.value = false;
+  }
 }
 
 async function onDeleteProject(row) {
+  if (row.slug === "default") {
+    ElMessage.warning("默认项目不可删除。");
+    return;
+  }
   try {
     await ElMessageBox.confirm(
-      `确定删除项目「${row.name}」？此操作在演示环境中仅移除本地记录。`,
+      `确定删除项目「${row.name}」？将永久删除其成员、空间及全部业务数据，且不可恢复。`,
       "删除项目",
       { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" }
     );
   } catch {
     return;
   }
-  projects.value = projects.value.filter((p) => p.id !== row.id);
-  persistProjects();
-  ElMessage.success("已删除（模拟）");
+  try {
+    const wasActive = activeTenantId.value === row.id;
+    await deleteTenant(row.id);
+    ElMessage.success("项目已删除");
+    await refreshTenants();
+    if (wasActive && portalTenants.value.length) {
+      await switchTenant(portalTenants.value[0]);
+    }
+    await loadProjects();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "删除失败");
+  }
 }
 </script>
 

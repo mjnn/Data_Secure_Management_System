@@ -10,7 +10,7 @@
             </el-tooltip>
           </span>
         </template>
-        <el-select
+        <dsms-filterable-select
           v-if="field.input_type === 'single_select'"
           :model-value="getValue(field.field_key)"
           style="width: 100%"
@@ -23,8 +23,8 @@
             :label="option"
             :value="option"
           />
-        </el-select>
-        <el-select
+        </dsms-filterable-select>
+        <dsms-filterable-select
           v-else-if="field.input_type === 'multi_select'"
           :model-value="getArrayValue(field.field_key)"
           style="width: 100%"
@@ -39,7 +39,7 @@
             :label="option"
             :value="option"
           />
-        </el-select>
+        </dsms-filterable-select>
         <el-input
           v-else-if="field.input_type === 'textarea'"
           :model-value="getValue(field.field_key)"
@@ -62,6 +62,7 @@
 
 <script setup>
 import { QuestionFilled } from "@element-plus/icons-vue";
+import DsmsFilterableSelect from "../DsmsFilterableSelect.vue";
 
 const props = defineProps({
   fields: { type: Array, required: true },

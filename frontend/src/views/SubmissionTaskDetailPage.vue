@@ -5,14 +5,13 @@
         <span aria-hidden="true">←</span> 返回任务列表
       </el-button>
       <h2 id="std-title" class="std__title">填报任务详情</h2>
-      <p v-if="!me" class="std__lead">正在加载当前用户…</p>
-      <p v-else-if="!task" class="std__lead">未找到该任务，可能已被删除或链接无效。</p>
+      <p v-if="!task" class="std__lead">未找到该任务，可能已被删除或链接无效。</p>
       <p v-else class="std__lead">
         查看任务基本信息、各执行人<strong>填报表单（只读）</strong>与<strong>功能 FO 填报情况</strong>汇总；对已提交填报的任务可进行<strong>审核</strong>（模拟）。表单字段与布局待「填报流程」定稿后由接口下发，本页按快照数据渲染。
       </p>
     </header>
 
-    <template v-if="me && isSecOrAdmin && task">
+    <template v-if="meReady && isSecOrAdmin && task">
       <el-descriptions class="std__desc dsms-animate-stagger-2" :column="2" border size="small" title="任务信息">
         <el-descriptions-item label="任务名称">{{ task.title }}</el-descriptions-item>
         <el-descriptions-item label="业务功能">{{ submissionFunctionName(task.functionId) }}</el-descriptions-item>
@@ -93,6 +92,15 @@
       <template v-if="canAudit">
         <h3 class="std__h3">审核</h3>
         <el-alert
+          v-if="pendingApprovalReview"
+          class="std__audit-alert"
+          type="info"
+          :closable="false"
+          show-icon
+          title="与审批中心同步"
+          description="本任务存在待处理的「填报内容审核」申请；在此审核将同步更新审批管理中的对应记录。"
+        />
+        <el-alert
           v-if="auditStatusLabel"
           class="std__audit-alert"
           :title="`当前审核状态：${auditStatusLabel}`"
@@ -146,23 +154,33 @@
 import { ElMessage } from "element-plus";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import api from "../api";
+import { useCurrentUser } from "../composables/useCurrentUser.js";
 import {
   hasRenderableFormSnapshot,
-  loadSubmissionTasksMerged,
   normalizeSubmissionTask,
   submissionFunctionById,
-  submissionFunctionName,
-  SUBMISSION_TASKS_STORAGE_KEY
+  submissionFunctionName
 } from "../data/submissionTasksMock";
+import { ensurePortalTenantReady, usePortalTenantContext } from "../composables/usePortalTenantContext.js";
+import {
+  approveApprovalRequest,
+  fetchApprovalRequests,
+  fetchSubmissionTask,
+  rejectApprovalRequest
+} from "../api/portalApi.js";
+import { setPortalSyncContext } from "../api/portalTaskSync.js";
+import { APPROVAL_TYPE_SUBMISSION_REVIEW } from "../data/approvalRequestsMock.js";
 import { effectivePlatformRole, PLATFORM_ROLE } from "../composables/usePortalMenuVisibility";
-import { bumpSubmissionTaskPersistListeners } from "../composables/useSubmissionTaskFoReminderCount";
 import SubmissionFillFormReadonly from "../components/SubmissionFillFormReadonly.vue";
 
 const route = useRoute();
 const router = useRouter();
-const me = ref(null);
-const tasks = ref([]);
+const { tenantId, spaceId, ready } = usePortalTenantContext();
+const { user: me, ready: meReady, ensureCurrentUser } = useCurrentUser();
+
+ensureCurrentUser();
+const taskRow = ref(null);
+const pendingReviewRequest = ref(null);
 
 const taskId = computed(() => {
   const raw = route.params.taskId;
@@ -170,10 +188,7 @@ const taskId = computed(() => {
   return Number.isFinite(n) ? n : NaN;
 });
 
-const task = computed(() => {
-  if (!Number.isFinite(taskId.value)) return null;
-  return tasks.value.find((t) => t.id === taskId.value) || null;
-});
+const task = computed(() => taskRow.value);
 
 const platformRole = computed(() => effectivePlatformRole(me.value));
 const isSecOrAdmin = computed(
@@ -212,9 +227,11 @@ const assigneeRows = computed(() => {
 const canAudit = computed(() => {
   const t = task.value;
   if (!t || t.status !== "dispatched") return false;
-  if (t.foCancellationRequested) return false;
+  if (t.foCancellationRequested || t.foCancelApprovalPending) return false;
   return t.foFillStatus === "submitted";
 });
+
+const pendingApprovalReview = computed(() => pendingReviewRequest.value);
 
 const auditStatusLabel = computed(() => {
   const t = task.value;
@@ -242,58 +259,62 @@ function progressTag(s) {
   return "info";
 }
 
-function loadTasks() {
-  tasks.value = loadSubmissionTasksMerged();
-}
-
-function persistTasks() {
+async function loadTaskDetail() {
+  if (!ready.value || !tenantId.value || !Number.isFinite(taskId.value)) return;
+  setPortalSyncContext(tenantId.value, spaceId.value);
   try {
-    sessionStorage.setItem(SUBMISSION_TASKS_STORAGE_KEY, JSON.stringify(tasks.value));
-  } catch (_e) {
-    /* ignore */
+    const data = await fetchSubmissionTask(tenantId.value, spaceId.value, taskId.value);
+    taskRow.value = normalizeSubmissionTask(data);
+    const approvals = await fetchApprovalRequests(tenantId.value, spaceId.value, { status: "pending" });
+    pendingReviewRequest.value =
+      approvals.find(
+        (r) =>
+          r.type === APPROVAL_TYPE_SUBMISSION_REVIEW &&
+          (r.payload?.task_id === taskId.value || r.payload?.taskId === taskId.value)
+      ) || null;
+  } catch (e) {
+    taskRow.value = null;
+    ElMessage.error(e.response?.data?.detail || "加载任务详情失败");
   }
-  bumpSubmissionTaskPersistListeners();
 }
 
 function goBack() {
   router.push({ name: "dashboard-submission-task" });
 }
 
-const loadMe = async () => {
-  try {
-    const { data } = await api.get("/api/v1/users/me");
-    me.value = data;
-    const role = effectivePlatformRole(data);
-    if (role !== PLATFORM_ROLE.SYSTEM_ADMIN && role !== PLATFORM_ROLE.SECURITY_FO) {
-      ElMessage.warning("当前角色无权访问填报任务审核详情。");
-      await router.replace({ name: "dashboard-submission-task" });
-    }
-  } catch {
-    /* 未登录由全局守卫处理 */
+onMounted(async () => {
+  await Promise.all([ensureCurrentUser(), ensurePortalTenantReady()]);
+  const role = effectivePlatformRole(me.value);
+  if (role !== PLATFORM_ROLE.SYSTEM_ADMIN && role !== PLATFORM_ROLE.SECURITY_FO) {
+    ElMessage.warning("当前角色无权访问填报任务审核详情。");
+    await router.replace({ name: "dashboard-submission-task" });
+    return;
   }
-};
-
-onMounted(() => {
-  loadTasks();
-  loadMe();
+  await loadTaskDetail();
 });
 
 watch(
   () => route.params.taskId,
   () => {
-    loadTasks();
+    loadTaskDetail();
   }
 );
 
-function onApprove() {
+async function onApprove() {
   const t = task.value;
   if (!t) return;
-  const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-  t.auditStatus = "approved";
-  t.auditComment = "";
-  t.auditedAt = now;
-  persistTasks();
-  ElMessage.success("审核通过（模拟）。");
+  const req = pendingReviewRequest.value;
+  if (!req) {
+    ElMessage.warning("未找到待审核的审批申请。");
+    return;
+  }
+  try {
+    const data = await approveApprovalRequest(tenantId.value, spaceId.value, req.id);
+    ElMessage.success(data.message || "审核通过");
+    await loadTaskDetail();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "审核失败");
+  }
 }
 
 const returnVisible = ref(false);
@@ -322,13 +343,20 @@ async function submitReturn() {
   }
   const t = task.value;
   if (!t) return;
-  const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-  t.auditStatus = "returned";
-  t.auditComment = returnForm.comment.trim();
-  t.auditedAt = now;
-  persistTasks();
-  returnVisible.value = false;
-  ElMessage.success("已退回修改（模拟）。");
+  const reason = returnForm.comment.trim();
+  const req = pendingReviewRequest.value;
+  if (!req) {
+    ElMessage.warning("未找到待审核的审批申请。");
+    return;
+  }
+  try {
+    const data = await rejectApprovalRequest(tenantId.value, spaceId.value, req.id, reason);
+    returnVisible.value = false;
+    ElMessage.success(data.message || "已退回修改");
+    await loadTaskDetail();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "退回失败");
+  }
 }
 </script>
 

@@ -70,7 +70,6 @@
         </div>
         <nav class="aside-nav" aria-label="主导航">
           <el-menu
-            :key="String(route.name)"
             class="dashboard-menu"
             :class="{ 'dashboard-menu--suppress-labels': suppressMenuLabels }"
             :default-active="activeMenu"
@@ -136,70 +135,40 @@
                 <el-icon><Setting /></el-icon>
                 <span>规则管理</span>
               </template>
-              <el-sub-menu index="rule-relevance">
-                <template #title>
-                  <el-icon><Connection /></el-icon>
-                  <span>相关性判断</span>
-                </template>
-                <el-menu-item index="rule-relevance-questionnaire">
-                  <el-icon><Notebook /></el-icon>
-                  <span>相关性问卷</span>
-                </el-menu-item>
-                <el-sub-menu index="rule-relevance-standard">
-                  <template #title>
-                    <el-icon><Guide /></el-icon>
-                    <span>相关性标准</span>
-                  </template>
-                  <el-menu-item index="rule-relevance-standard-predicate">
-                    <el-icon><Operation /></el-icon>
-                    <span>谓词配置</span>
-                  </el-menu-item>
-                  <el-menu-item index="rule-relevance-standard-expression">
-                    <el-icon><Edit /></el-icon>
-                    <span>表达式配置和验证</span>
-                  </el-menu-item>
-                </el-sub-menu>
-              </el-sub-menu>
-              <el-sub-menu index="rule-taxonomy">
-                <template #title>
-                  <el-icon><Share /></el-icon>
-                  <span>分类树</span>
-                </template>
-                <el-menu-item index="rule-taxonomy-levels">
-                  <el-icon><Menu /></el-icon>
-                  <span>分类树层级</span>
-                </el-menu-item>
-                <el-menu-item index="rule-taxonomy-field-classification">
-                  <el-icon><Histogram /></el-icon>
-                  <span>数据字段分类</span>
-                </el-menu-item>
-              </el-sub-menu>
-              <el-menu-item index="rule-classification">
+              <el-menu-item v-if="menuVis.ruleRelevance" index="rule-relevance">
+                <el-icon><Connection /></el-icon>
+                <span>功能数据安全相关性</span>
+              </el-menu-item>
+              <el-menu-item v-if="menuVis.ruleTaxonomy" index="rule-taxonomy">
+                <el-icon><Share /></el-icon>
+                <span>数据分类标准</span>
+              </el-menu-item>
+              <el-menu-item v-if="menuVis.ruleClassification" index="rule-classification">
                 <el-icon><Lock /></el-icon>
                 <span>密级绑定</span>
               </el-menu-item>
-              <el-sub-menu index="rule-security">
-                <template #title>
-                  <el-icon><WarningFilled /></el-icon>
-                  <span>安全要求</span>
-                </template>
-                <el-menu-item index="rule-security-predicate">
-                  <el-icon><Operation /></el-icon>
-                  <span>谓词配置</span>
-                </el-menu-item>
-                <el-menu-item index="rule-security-expression">
-                  <el-icon><Edit /></el-icon>
-                  <span>表达式配置和验证</span>
-                </el-menu-item>
-              </el-sub-menu>
+              <el-menu-item v-if="menuVis.ruleSecurity" index="rule-security">
+                <el-icon><WarningFilled /></el-icon>
+                <span>安全要求</span>
+              </el-menu-item>
             </el-sub-menu>
             <el-menu-item v-if="menuVis.documentResource" index="document-resource">
               <el-icon><FolderOpened /></el-icon>
               <span>文档资源</span>
             </el-menu-item>
-            <el-menu-item v-if="menuVis.approval" index="approval">
+            <el-menu-item
+              v-if="menuVis.approval"
+              index="approval"
+              :class="{ 'dashboard-menu-item--with-badge': isSecOrAdminRole && approvalPendingCount > 0 }"
+            >
               <el-icon><CircleCheck /></el-icon>
               <span>审批管理</span>
+              <el-badge
+                v-if="isSecOrAdminRole && approvalPendingCount > 0"
+                class="dashboard-menu-item__badge"
+                :value="approvalPendingCount"
+                :max="99"
+              />
             </el-menu-item>
           </el-menu>
         </nav>
@@ -243,9 +212,9 @@
               <button
                 type="button"
                 class="dashboard-project-switch__item"
-                :class="{ 'dashboard-project-switch__item--active': p.id === currentTenant.id }"
+                :class="{ 'dashboard-project-switch__item--active': p.id === tenantId }"
                 role="option"
-                :aria-selected="p.id === currentTenant.id"
+                :aria-selected="p.id === tenantId"
                 @click="selectMockProject(p)"
               >
                 <span class="dashboard-project-switch__name">{{ p.name }}</span>
@@ -279,11 +248,8 @@ import {
   FolderOpened,
   Grid,
   Guide,
-  Histogram,
   House,
   Lock,
-  Menu,
-  Notebook,
   OfficeBuilding,
   Operation,
   Setting,
@@ -291,12 +257,23 @@ import {
   User,
   WarningFilled
 } from "@element-plus/icons-vue";
-import api from "../api";
 import { useDsmsLogout } from "../composables/useDsmsLogout";
+import { useCurrentUser } from "../composables/useCurrentUser.js";
 import {
   computeFoSubmissionReminderCount,
   SUBMISSION_TASKS_PERSIST_EVENT
 } from "../composables/useSubmissionTaskFoReminderCount";
+import {
+  ensurePortalTenantReady,
+  usePortalTenantContext
+} from "../composables/usePortalTenantContext.js";
+import {
+  fetchMyFoBindings,
+  fetchPendingApprovalCount,
+  fetchSubmissionTasks,
+  PORTAL_DATA_REFRESH_EVENT
+} from "../api/portalApi.js";
+import { foWorkflowProgressKey } from "../data/submissionFoWorkflowMock.js";
 import { effectivePlatformRole, menuVisibilityForRole, PLATFORM_ROLE } from "../composables/usePortalMenuVisibility";
 import AccountSettingsDialog from "../components/AccountSettingsDialog.vue";
 import PortalBrandLogo from "../components/PortalBrandLogo.vue";
@@ -323,8 +300,38 @@ const activeMenu = computed(() => {
   if (route.name === "dashboard-submission-status") return "submission-status";
   if (route.name === "dashboard-field-lifecycle-meta") return "field-lifecycle-meta";
   if (route.name === "dashboard-field-catalog") return "field-catalog";
+  if (
+    route.name === "dashboard-rule-relevance-questionnaire" ||
+    route.name === "dashboard-rule-relevance-standard-expression"
+  ) {
+    return "rule-relevance";
+  }
+  if (
+    route.name === "dashboard-rule-taxonomy-levels" ||
+    route.name === "dashboard-rule-taxonomy-nodes" ||
+    route.name === "dashboard-rule-taxonomy-field-classification" ||
+    route.name === "dashboard-rule-taxonomy-classification-config" ||
+    route.name === "dashboard-rule-taxonomy-classification-results"
+  ) {
+    return "rule-taxonomy";
+  }
+  if (
+    route.name === "dashboard-rule-classification-levels" ||
+    route.name === "dashboard-rule-classification-bindings"
+  ) {
+    return "rule-classification";
+  }
+  if (route.name === "dashboard-rule-security") {
+    return "rule-security";
+  }
   if (route.name === "dashboard-submission-task-detail" || route.name === "dashboard-submission-task") {
     return "submission-task";
+  }
+  if (route.name === "dashboard-approval") {
+    return "approval";
+  }
+  if (route.name === "dashboard-document-resource") {
+    return "document-resource";
   }
   return "home";
 });
@@ -359,60 +366,16 @@ const toggleAside = () => {
   }
 };
 
-const MOCK_PROJECTS = [
-  { id: 1, name: "默认项目", slug: "default" },
-  { id: 2, name: "演示项目 B", slug: "demo-b" },
-  { id: 3, name: "动力总成研发", slug: "powertrain-rd" },
-  { id: 4, name: "智能网联试验", slug: "smart-net-lab" },
-  { id: 5, name: "合规审计专项", slug: "audit-compliance" }
-];
+const { tenantId, spaceId, tenantName, tenants, switchTenant, refreshTenants, ready } =
+  usePortalTenantContext();
+const { user: me, ensureCurrentUser, setCurrentUser } = useCurrentUser();
 
-const MOCK_TENANT_STORAGE_KEY = "dsms_portal_mock_current_tenant";
-
-const me = ref(null);
-const tenantDropdownRef = ref(null);
-const currentTenant = ref({ id: 1, name: "默认项目" });
-const projectSwitchVisible = ref(false);
-const projectSwitchQuery = ref("");
-const projectSwitchInputRef = ref(null);
-
-function fuzzyProjectMatch(query, project) {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  const hay = `${project.name} ${project.slug}`.toLowerCase();
-  if (hay.includes(q)) return true;
-  let from = 0;
-  for (const ch of q) {
-    const idx = hay.indexOf(ch, from);
-    if (idx === -1) return false;
-    from = idx + 1;
-  }
-  return true;
-}
+ensureCurrentUser();
+ensurePortalTenantReady();
 
 const filteredMockProjects = computed(() =>
-  MOCK_PROJECTS.filter((p) => fuzzyProjectMatch(projectSwitchQuery.value, p))
+  tenants.value.filter((p) => fuzzyProjectMatch(projectSwitchQuery.value, p))
 );
-
-function readStoredMockTenant() {
-  try {
-    const raw = sessionStorage.getItem(MOCK_TENANT_STORAGE_KEY);
-    if (!raw) return null;
-    const o = JSON.parse(raw);
-    if (o && typeof o.id === "number" && typeof o.name === "string") return o;
-  } catch (_e) {
-    /* ignore */
-  }
-  return null;
-}
-
-function persistMockTenant() {
-  try {
-    sessionStorage.setItem(MOCK_TENANT_STORAGE_KEY, JSON.stringify(currentTenant.value));
-  } catch (_e) {
-    /* ignore */
-  }
-}
 
 const onProjectSwitchDialogOpened = () => {
   nextTick(() => {
@@ -428,14 +391,34 @@ const openProjectSwitchDialog = () => {
   });
 };
 
-const selectMockProject = (p) => {
-  currentTenant.value = { id: p.id, name: p.name };
-  persistMockTenant();
+const selectMockProject = async (p) => {
+  await switchTenant(p);
   projectSwitchVisible.value = false;
-  ElMessage.success(`已切换至「${p.name}」（模拟，未请求后端）`);
+  ElMessage.success(`已切换至「${p.name}」`);
+  refreshFoSubmissionReminder();
+  refreshApprovalPendingCount();
 };
 
-const currentTenantLabel = computed(() => currentTenant.value?.name || "项目");
+const currentTenantLabel = computed(() => tenantName.value || "项目");
+
+const tenantDropdownRef = ref(null);
+const projectSwitchVisible = ref(false);
+const projectSwitchQuery = ref("");
+const projectSwitchInputRef = ref(null);
+
+function fuzzyProjectMatch(query, project) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const hay = `${project.name} ${project.slug || ""}`.toLowerCase();
+  if (hay.includes(q)) return true;
+  let from = 0;
+  for (const ch of q) {
+    const idx = hay.indexOf(ch, from);
+    if (idx === -1) return false;
+    from = idx + 1;
+  }
+  return true;
+}
 
 const tenantMenuAriaLabel = computed(
   () => `项目菜单，当前 ${currentTenantLabel.value}，按回车或空格打开`
@@ -445,39 +428,76 @@ const menuVis = computed(() => menuVisibilityForRole(effectivePlatformRole(me.va
 
 const isFunctionFoRole = computed(() => effectivePlatformRole(me.value) === PLATFORM_ROLE.FUNCTION_FO);
 
-const foSubmissionReminderCount = ref(0);
+const isSecOrAdminRole = computed(() => {
+  const r = effectivePlatformRole(me.value);
+  return r === PLATFORM_ROLE.SYSTEM_ADMIN || r === PLATFORM_ROLE.SECURITY_FO;
+});
 
-function refreshFoSubmissionReminder() {
-  foSubmissionReminderCount.value = computeFoSubmissionReminderCount(me.value);
+const foSubmissionReminderCount = ref(0);
+const approvalPendingCount = ref(0);
+
+async function refreshFoSubmissionReminder() {
+  if (!isFunctionFoRole.value) {
+    foSubmissionReminderCount.value = 0;
+    return;
+  }
+  if (!ready.value || !tenantId.value) {
+    foSubmissionReminderCount.value = computeFoSubmissionReminderCount(me.value);
+    return;
+  }
+  try {
+    const [binding, tasks] = await Promise.all([
+      fetchMyFoBindings(tenantId.value, spaceId.value),
+      fetchSubmissionTasks(tenantId.value, spaceId.value)
+    ]);
+    const bound = new Set(binding.function_keys || []);
+    foSubmissionReminderCount.value = tasks.filter((t) => {
+      if (t.status !== "dispatched") return false;
+      if (!bound.has(t.functionId)) return false;
+      if (t.foCancellationRequested) return false;
+      const k = foWorkflowProgressKey(t);
+      return k === "not_started" || k === "relevance_draft" || k === "lifecycle_draft";
+    }).length;
+  } catch {
+    foSubmissionReminderCount.value = computeFoSubmissionReminderCount(me.value);
+  }
+}
+
+async function refreshApprovalPendingCount() {
+  if (!isSecOrAdminRole.value) {
+    approvalPendingCount.value = 0;
+    return;
+  }
+  if (!ready.value || !tenantId.value) {
+    approvalPendingCount.value = 0;
+    return;
+  }
+  try {
+    approvalPendingCount.value = await fetchPendingApprovalCount(tenantId.value, spaceId.value);
+  } catch {
+    approvalPendingCount.value = 0;
+  }
 }
 
 const canAccessProjectManagement = computed(
   () => effectivePlatformRole(me.value) === PLATFORM_ROLE.SYSTEM_ADMIN
 );
 
-const loadMe = async () => {
-  try {
-    const { data } = await api.get("/api/v1/users/me");
-    me.value = data;
-  } catch (error) {
-    const detail = error.response?.data?.detail;
-    if (detail) ElMessage.error(detail);
-  }
-};
-
-onMounted(() => {
+onMounted(async () => {
   try {
     asideCollapsed.value = localStorage.getItem(ASIDE_COLLAPSED_KEY) === "1";
   } catch (_e) {
     asideCollapsed.value = false;
   }
-  const stored = readStoredMockTenant();
-  if (stored && MOCK_PROJECTS.some((p) => p.id === stored.id)) {
-    currentTenant.value = { id: stored.id, name: stored.name };
-  }
-  loadMe();
+  await Promise.all([ensureCurrentUser(), ensurePortalTenantReady()]);
+  await refreshTenants();
   refreshFoSubmissionReminder();
+  refreshApprovalPendingCount();
   window.addEventListener(SUBMISSION_TASKS_PERSIST_EVENT, refreshFoSubmissionReminder);
+  window.addEventListener(PORTAL_DATA_REFRESH_EVENT, () => {
+    refreshFoSubmissionReminder();
+    refreshApprovalPendingCount();
+  });
 });
 
 watch(asideCollapsed, (v) => {
@@ -490,6 +510,7 @@ watch(asideCollapsed, (v) => {
 
 watch(me, () => {
   refreshFoSubmissionReminder();
+  refreshApprovalPendingCount();
 });
 
 watch(
@@ -543,7 +564,7 @@ const onUserCommand = (command) => {
 };
 
 const onProfileUpdated = (data) => {
-  me.value = data;
+  setCurrentUser(data);
 };
 
 const onMenuSelect = (index) => {
@@ -571,8 +592,32 @@ const onMenuSelect = (index) => {
     router.push({ name: "dashboard-field-catalog" });
     return;
   }
+  if (index === "rule-relevance") {
+    router.push({ name: "dashboard-rule-relevance-questionnaire" });
+    return;
+  }
+  if (index === "rule-taxonomy") {
+    router.push({ name: "dashboard-rule-taxonomy-levels" });
+    return;
+  }
+  if (index === "rule-classification") {
+    router.push({ name: "dashboard-rule-classification-levels" });
+    return;
+  }
+  if (index === "rule-security") {
+    router.push({ name: "dashboard-rule-security" });
+    return;
+  }
   if (index === "submission-task") {
     router.push({ name: "dashboard-submission-task" });
+    return;
+  }
+  if (index === "approval") {
+    router.push({ name: "dashboard-approval" });
+    return;
+  }
+  if (index === "document-resource") {
+    router.push({ name: "dashboard-document-resource" });
     return;
   }
   ElMessage.info("功能待接入");
@@ -699,6 +744,16 @@ const onMenuSelect = (index) => {
 
 .dashboard-menu:not(.el-menu--collapse) {
   width: 100%;
+}
+
+/* 当前路由对应菜单项：浅底高亮；切换路由时不 remount 菜单，避免子菜单重播展开动画 */
+.dashboard-menu :deep(.el-menu-item.is-active) {
+  background-color: var(--el-color-primary-light-9);
+  border-radius: 6px;
+}
+
+html.dark .dashboard-menu :deep(.el-menu-item.is-active) {
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .dashboard-main {

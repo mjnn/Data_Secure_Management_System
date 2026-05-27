@@ -2,14 +2,13 @@
   <section class="flm dsms-glass-panel dsms-animate-stagger-0" aria-labelledby="flm-title">
     <header class="flm__header dsms-animate-stagger-1">
       <h2 id="flm-title" class="flm__title">数据安全生命周期元字段</h2>
-      <p v-if="!me" class="flm__lead">正在加载当前用户…</p>
-      <p v-else class="flm__lead">
-        由<strong>数据安全 FO / 系统管理员</strong>配置功能 FO 填报表：系统<strong>默认内置并锁定</strong>「数据字段」「业务功能」两条<strong>必填单选</strong>（顺序固定于表首）；其后可追加更多动态列。配置写入
-        <code class="flm__code">{{ storageKey }}</code>；联调后对接规格中的空间内表单配置接口。
+      <p class="flm__lead">
+        由<strong>数据安全 FO / 系统管理员</strong>配置功能 FO 填报表：系统<strong>默认内置并锁定</strong>「数据字段」「业务功能」两条<strong>必填单选</strong>；配置保存至后端
+        <code class="flm__code">/forms/lifecycle-field-config</code>。
       </p>
     </header>
 
-    <template v-if="me && isSecOrAdmin">
+    <template v-if="meReady && isSecOrAdmin">
       <el-alert
         class="flm__alert dsms-animate-stagger-2"
         type="info"
@@ -46,7 +45,7 @@
         </template>
         <p class="flm__preview-hint">
           与功能 FO 在「填报任务管理」中打开的<strong>明细表</strong>同一套组件与列顺序：首列为<strong>数据字段</strong>，第二列为<strong>业务功能</strong>（绑定多项时可筛选单选；当前模拟绑定见
-          <code class="flm__code">MOCK_FO_BOUND_FUNCTION_IDS</code>），其后为自定义动态列。可<strong>新增条目</strong>试填；预览数据<strong>不会</strong>写入任务或 session。当字段 Key、类型、必填、选项或最大长度变化时，预览表会<strong>重置为 1 行</strong>以免列错位。
+          <code class="flm__code">loadFoBoundFunctionIds()</code>），其后为自定义动态列。可<strong>新增条目</strong>试填；预览数据<strong>不会</strong>写入任务或 session。当字段 Key、类型、必填、选项或最大长度变化时，预览表会<strong>重置为 1 行</strong>以免列错位。
         </p>
         <div class="flm__preview-table">
           <fo-lifecycle-fill-table
@@ -65,7 +64,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import api from "../api";
 import FieldConfigManagerTable from "../components/form-config/FieldConfigManagerTable.vue";
 import FoLifecycleFillTable from "../components/FoLifecycleFillTable.vue";
 import {
@@ -73,34 +71,32 @@ import {
   createEmptyLifecycleFieldTableRow,
   LIFECYCLE_BUILTIN_BUSINESS_FUNCTION_KEY,
   LIFECYCLE_BUILTIN_DATA_FIELD_KEY,
-  LIFECYCLE_FIELD_CONFIG_STORAGE_KEY,
-  loadLifecycleFieldConfigTableRows,
   mergeWithBuiltinLifecycleRows,
-  parseAllowedValuesCommaText,
-  persistLifecycleFieldConfigFromTableRows
+  parseAllowedValuesCommaText
 } from "../data/lifecycleFieldConfigMock.js";
+import { fetchMyFoBindings, PORTAL_DATA_REFRESH_EVENT } from "../api/portalApi.js";
+import { fetchLifecycleFieldConfig, syncLifecycleFieldConfigTable } from "../api/dsmsSpaceApi.js";
+import { ensurePortalTenantReady, usePortalTenantContext } from "../composables/usePortalTenantContext.js";
+import { useCurrentUser } from "../composables/useCurrentUser.js";
 import { submissionFunctionById } from "../data/submissionTasksMock.js";
-import { DATA_FIELD_CATALOG_PERSIST_EVENT } from "../data/dataFieldCatalogMock.js";
-import { MOCK_FO_BOUND_FUNCTION_IDS } from "../composables/useSubmissionTaskFoReminderCount.js";
 import { effectivePlatformRole, PLATFORM_ROLE } from "../composables/usePortalMenuVisibility";
 
 const router = useRouter();
-const me = ref(null);
+const { user: me, ready: meReady, ensureCurrentUser } = useCurrentUser();
+
+ensureCurrentUser();
 const rows = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 const previewTableRows = ref([]);
 const catalogRefreshTick = ref(0);
 
-function onCatalogPersisted() {
-  catalogRefreshTick.value++;
-}
-
-const storageKey = LIFECYCLE_FIELD_CONFIG_STORAGE_KEY;
+const { tenantId, spaceId, ready } = usePortalTenantContext();
+const foBoundIds = ref([]);
 
 const builtinLockedKeys = [LIFECYCLE_BUILTIN_DATA_FIELD_KEY, LIFECYCLE_BUILTIN_BUSINESS_FUNCTION_KEY];
 
-const previewFoBoundFunctionIds = MOCK_FO_BOUND_FUNCTION_IDS;
+const previewFoBoundFunctionIds = computed(() => foBoundIds.value);
 
 function functionNameById(id) {
   return submissionFunctionById(id)?.name || id;
@@ -148,8 +144,9 @@ function resetPreviewTableRows() {
   }
   const keys = cols.map((c) => c.field_key);
   let next = [buildEmptyLifecycleFillRow(keys, cols)];
-  if (previewFoBoundFunctionIds.length === 1) {
-    const fid = previewFoBoundFunctionIds[0];
+  const boundIds = previewFoBoundFunctionIds.value;
+  if (boundIds.length === 1) {
+    const fid = boundIds[0];
     next = next.map((r) => ({ ...r, [LIFECYCLE_BUILTIN_BUSINESS_FUNCTION_KEY]: fid }));
   }
   previewTableRows.value = next;
@@ -169,10 +166,20 @@ const inputTypeOptions = [
   { label: "多选", value: "multi_select" }
 ];
 
-function reloadRows() {
+async function reloadRows() {
+  if (!ready.value || !tenantId.value) return;
   loading.value = true;
   try {
-    rows.value = loadLifecycleFieldConfigTableRows();
+    rows.value = await fetchLifecycleFieldConfig(tenantId.value, spaceId.value);
+    catalogRefreshTick.value++;
+    try {
+      const binding = await fetchMyFoBindings(tenantId.value, spaceId.value);
+      foBoundIds.value = binding.function_keys || [];
+    } catch {
+      foBoundIds.value = [];
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "加载字段配置失败");
   } finally {
     loading.value = false;
   }
@@ -232,17 +239,19 @@ async function onSave() {
   if (!validateBeforeSave()) return;
   saving.value = true;
   try {
-    persistLifecycleFieldConfigFromTableRows(rows.value);
-    rows.value = loadLifecycleFieldConfigTableRows();
-    ElMessage.success(rows.value.length ? "已保存字段配置（模拟）。" : "已清空字段配置（模拟）。");
+    rows.value = await syncLifecycleFieldConfigTable(tenantId.value, spaceId.value, rows.value);
+    ElMessage.success(rows.value.length ? "已保存字段配置" : "已清空自定义字段");
+    catalogRefreshTick.value++;
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "保存失败");
   } finally {
     saving.value = false;
   }
 }
 
-function onRefresh() {
-  reloadRows();
-  ElMessage.success("已从本地存储重新加载。");
+async function onRefresh() {
+  await reloadRows();
+  ElMessage.success("已从后端重新加载");
 }
 
 function onAddField() {
@@ -266,31 +275,21 @@ async function onDelete(row) {
   });
 }
 
-const loadMe = async () => {
-  try {
-    const { data } = await api.get("/api/v1/users/me");
-    me.value = data;
-    const role = effectivePlatformRole(data);
-    if (role !== PLATFORM_ROLE.SYSTEM_ADMIN && role !== PLATFORM_ROLE.SECURITY_FO) {
-      ElMessage.warning("当前角色无权访问数据安全生命周期元字段配置。");
-      await router.replace({ name: "dashboard-home" });
-    }
-  } catch {
-    /* 未登录由全局守卫处理 */
+onMounted(async () => {
+  await Promise.all([ensureCurrentUser(), ensurePortalTenantReady()]);
+  const role = effectivePlatformRole(me.value);
+  if (role !== PLATFORM_ROLE.SYSTEM_ADMIN && role !== PLATFORM_ROLE.SECURITY_FO) {
+    ElMessage.warning("当前角色无权访问数据安全生命周期元字段配置。");
+    await router.replace({ name: "dashboard-home" });
+    return;
   }
-};
-
-onMounted(() => {
-  window.addEventListener(DATA_FIELD_CATALOG_PERSIST_EVENT, onCatalogPersisted);
+  await reloadRows();
+  window.addEventListener(PORTAL_DATA_REFRESH_EVENT, reloadRows);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener(DATA_FIELD_CATALOG_PERSIST_EVENT, onCatalogPersisted);
+  window.removeEventListener(PORTAL_DATA_REFRESH_EVENT, reloadRows);
 });
-
-reloadRows();
-
-loadMe();
 </script>
 
 <style scoped>

@@ -31,6 +31,7 @@ class Tenant(SQLModel, table=True):
     name: str
     slug: Optional[str] = Field(default=None, unique=True, index=True)
     is_archived: bool = False
+    copy_meta_json: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -70,6 +71,7 @@ class QuestionnaireQuestion(SQLModel, table=True):
     question_type: str = "text"
     is_required: bool = False
     sort_order: int = 0
+    options_json: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -95,6 +97,9 @@ class RelevanceRule(SQLModel, table=True):
     tenant_id: int = Field(foreign_key="tenant.id", index=True)
     project_space_id: int = Field(foreign_key="projectspace.id", index=True)
     expression: str = ""
+    logic_root_json: Optional[str] = None
+    conclusion_when_true: str = "relevant"
+    conclusion_when_false: str = "irrelevant"
     updated_at: datetime = Field(default_factory=utc_now)
 
 
@@ -124,6 +129,7 @@ class LifecycleFieldConfig(SQLModel, table=True):
     field_key: str
     field_label: str
     field_type: str = "text"
+    is_builtin: bool = False
     is_required: bool = False
     options_json: Optional[str] = None
     validation_json: Optional[str] = None
@@ -139,6 +145,7 @@ class FieldCatalogEntry(SQLModel, table=True):
     tenant_id: int = Field(foreign_key="tenant.id", index=True)
     project_space_id: int = Field(foreign_key="projectspace.id", index=True)
     field_name: str
+    description: Optional[str] = None
     identifier_key: str
     data_type: str = "string"
     sensitivity_level: Optional[str] = None
@@ -307,3 +314,21 @@ class GovernanceChangeLog(SQLModel, table=True):
     summary: Optional[str] = None
     detail_json: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
+
+
+from app.models_portal import (  # noqa: E402
+    ApprovalRequest,
+    BusinessFunction,
+    DocumentResource,
+    DocumentTransferJob,
+    FieldCatalogChangeRequest,
+    FieldCatalogValue,
+    FoFunctionSecurityTag,
+    FoUserFunctionBinding,
+    PlatformAuditLog,
+    SecurityRequirementRule,
+    SensitivityLevel,
+    SubmissionTask,
+    SubmissionTaskAssignee,
+    TaxonomyLevel,
+)

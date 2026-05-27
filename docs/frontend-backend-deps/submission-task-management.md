@@ -4,37 +4,37 @@
 
 - **列表路由**：`path`: `/submission-task`，`name`: `dashboard-submission-task`（`frontend/src/router.js`）
 - **详情路由**：`path`: `/submission-task/:taskId`，`name`: `dashboard-submission-task-detail`（`frontend/src/views/SubmissionTaskDetailPage.vue`）
-- **共享模拟数据**：`frontend/src/data/submissionTasksMock.js`（`sessionStorage` 键名、业务功能表、任务归一化）
+- **任务工具**：`frontend/src/data/submissionTasksMock.js`（归一化、`hasRenderableFormSnapshot`、业务功能名称缓存；**无** sessionStorage 种子）
 - **列表组件**：`frontend/src/views/SubmissionTaskManagementPage.vue`
 
 ## 2. 当前实现状态
 
-- **已接真实 API**：`GET /api/v1/users/me` — 用于 `effectivePlatformRole`；**列表**允许 **`system_admin`**、**`security_fo`**、**`function_fo`**（含超管视为管理员）；**详情（审核）** 仅 **`system_admin`** 与 **`security_fo`**，功能 FO 访问详情将被重定向回列表。
-- **Mock / sessionStorage / 仅前端**：
-  - **业务功能列表**（含是否已绑定功能 FO）为共享模块 **`submissionTasksMock.js`** 中常量，未请求后端。
-  - **填报任务**列表与写操作使用 **`sessionStorage`** 键 **`dsms_mock_submission_tasks_v1`**；首次无数据时注入种子数据；持久化后派发 **`dsms-submission-tasks-persisted`** 事件，供侧栏红点刷新（见 `useSubmissionTaskFoReminderCount.js`）。
-  - **功能 FO 绑定功能**：与红点计数共用导出常量 **`MOCK_FO_BOUND_FUNCTION_IDS`**（`frontend/src/composables/useSubmissionTaskFoReminderCount.js`），后续改为接口字段。
-  - **数据安全侧**：支持**多选业务功能**汇总列表、**跨功能多选草稿批量下发**（逐条校验已绑功能 FO）；可进入**任务详情**查看功能 FO **填报表单只读快照**（`foFillFormSnapshot`，待填报流程与接口定稿）、填报情况汇总（含主责 + 模拟协同行）并对**已提交**任务做**审核通过 / 退回修改**（模拟）。下发、任务增删改、审核均为前端状态 + `ElMessage`，无 HTTP 写接口。
-  - **功能 FO 侧**：列表支持**关键词搜索**与**我的进度**筛选。填报正文为 **`FoLifecycleFillTable`** 明细表：列来自 **`lifecycleFieldConfigMock.js`**（与「数据安全生命周期元字段」配置同源），首列为 **数据字段**、第二列为 **业务功能**（绑定多项时 `el-select` 可筛选单选，仅一项时只读带出），其后为数据安全 FO 配置的动态列；支持 **新增条目** 多行。草稿写入任务字段 **`foFillLifecycleRows`**；提交生成 **`foFillFormSnapshot`**（含 **`formTable`** 供只读展示，与 `SubmissionFillFormReadonly` 对齐）。绑定功能 ID 仍用 **`MOCK_FO_BOUND_FUNCTION_IDS`**（`useSubmissionTaskFoReminderCount.js`），后续改接口。
-- **角色与拦截**（与 `usePortalMenuVisibility` 一致）：
-  - **系统管理员 / 数据安全 FO**：侧栏「填报管理」含「填报情况」+「填报任务管理」；列表为**管理端**（多选功能、CRUD、跨功能批量下发）；**详情**为审核、填报情况汇总与**填报表单只读快照**。
-  - **功能 FO**：侧栏「填报管理」下**仅**「填报任务管理」（无「填报情况」）；本页为**执行端**（本人绑定功能已下发任务列表、搜索与筛选、红点提醒、填报与查看操作）。
+- **已接真实 API**（`frontend/src/api/portalApi.js`，租户/空间由 `usePortalTenantContext` 解析）：
+  - `GET /api/v1/users/me` — 角色与路由守卫
+  - `GET .../business-functions` — 业务功能列表（含 `has_active_fo_binding`）；写入 `setBusinessFunctionCatalog`
+  - `GET|POST .../submission-tasks`、`PATCH .../submission-tasks/{id}`、`POST .../submission-tasks/dispatch`
+  - `POST .../submission-tasks/{id}/cancel-request` — 功能 FO 取消申请
+  - `GET .../fo-function-bindings/me` — 当前用户生效绑定
+  - 工作流步骤仍写回后端：`portalTaskSync.js` → `PATCH`；**`foFillStatus=submitted` 时后端自动创建 `submission_fill_review`**
+  - `portalTaskCache`：列表/详情拉取后供字段目录「关联业务功能」聚合
+- **工作流（已接 API 配置 + 任务 PATCH）**：
+  - 相关性 / 表达式 / 生命周期列定义：`bootstrapSpaceConfig` + `submissionFoWorkflowMock.js`
+  - 治理识别：`evaluateSecurityRequirements` + 规则缓存（`foSubmissionGovernanceMock.js`）
+  - 「数据安全不相关」：由已提交任务 `foRelevanceConclusion` 推导（`foFunctionSecurityTagMock.js`）
+- **仍 Mock / 本地**：
+  - **删除草稿任务**：后端暂无 DELETE，前端提示不可用
+  - 侧栏 FO 红点：`computeFoSubmissionReminderCount` 读 `getPortalTaskCache()`（须先拉取任务列表）
 
 ## 3. 待对接 API（按能力块）
 
-规格与 OpenAPI 中尚未单列「填报任务」资源时，以下路径为 **占位**，定稿后替换为真实路径与字段名。
-
-| 前端能力 | HTTP | 路径（相对 `/api/v1/...`） | Query / Body 要点 | 响应字段要点 | 权限（约定） | 附录 A `behavior_key`（若有） |
-|----------|------|------------------------------|-------------------|--------------|----------------|--------------------------------|
-| 当前项目空间下可选业务功能（含是否已绑定功能 FO） | GET | **`待规格`** 例如 `dsms/.../business-functions` 或复用现有空间配置接口 | `tenant_id` / `space_id` 与上下文一致 | 功能 id、名称、`function_fo_bound` 等 | `security_fo` 或 `tenant_admin` / `super_admin`（以定稿为准） | — |
-| 填报任务列表 | GET | **`待规格`** `.../submission-tasks` | `skip`,`limit`，筛选 `function_id`、状态 | `total`,`items` | 同上 | — |
-| 创建填报任务 | POST | **`待规格`** | `function_id`,`title`, 可选 `internal_note` | 新建实体 | 数据安全侧角色 | **`待规格`**（定稿后须与附录 A 逐字一致） |
-| 更新填报任务（草稿） | PATCH | **`待规格`** `.../{task_id}` | 可改字段以定稿为准 | 更新后实体 | 同上 | 同上 |
-| 删除填报任务（草稿） | DELETE | **`待规格`** `.../{task_id}` | — | 204 或约定体 | 同上 | 同上 |
-| 批量下发 | POST | **`待规格`** 例如 `.../submission-tasks/dispatch` | `task_ids[]`，**必填** `dispatch_note`（填报任务说明）；服务端须校验对应 **业务功能已绑定功能 FO** | 成功计数、失败项与 `reason`（中文） | 同上 | **`待规格`** |
-| 功能 FO：我的待办任务列表 | GET | **`待规格`** | 当前用户绑定功能、`status=dispatched`、填报进度等 | `total`,`items` | `function_fo` | — |
-| 功能 FO：待办提醒计数（侧栏红点） | GET | **`待规格`** 或与上表合并为 unread 字段 | — | 整数 | `function_fo` | — |
-| 填报执行（开始 / 暂存 / 提交 / 申请取消） | POST/PATCH | **`待规格`** | 与填报子功能、审批流对齐 | 以定稿为准 | `function_fo` | **`待规格`** |
+| 前端能力 | HTTP | 路径 | 状态 |
+|----------|------|------|------|
+| 业务功能列表 | GET | `.../business-functions` | **已接** |
+| 填报任务 CRUD/下发 | GET/POST/PATCH/POST dispatch | `.../submission-tasks*` | **已接**（无 DELETE） |
+| 取消填报申请 | POST | `.../submission-tasks/{id}/cancel-request` | **已接** |
+| FO 绑定 | GET/POST | `.../fo-function-bindings/me`、`.../fo-function-binding-requests` | **已接**（绑定卡片） |
+| 填报审核 | POST approve/reject | `.../approval-requests/{id}/*` | **已接**（详情页） |
+| 工作流中间态（相关性/生命周期/治理） | — | 规则与元字段 API | **待接** |
 
 ## 4. 与规格的差异 / 缺口
 

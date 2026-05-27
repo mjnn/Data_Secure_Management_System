@@ -1,8 +1,29 @@
-/** 数据安全生命周期元字段（功能 FO 表单字段定义）— 前端模拟持久化 */
+/** 数据安全生命周期元字段 — 只读适配层；真源 `fetchLifecycleFieldConfig`。 */
 
 import { getCatalogLabelsSorted } from "./dataFieldCatalogMock.js";
+import { getLifecycleFieldsCache, setLifecycleFieldsCache } from "../stores/spaceConfigCache.js";
 
+/** @deprecated 仅用于迁移清理旧版 sessionStorage */
 export const LIFECYCLE_FIELD_CONFIG_STORAGE_KEY = "dsms_mock_lifecycle_field_config_v1";
+
+let legacyStorageCleared = false;
+
+function clearLegacySessionStorage() {
+  if (legacyStorageCleared || typeof sessionStorage === "undefined") return;
+  legacyStorageCleared = true;
+  try {
+    sessionStorage.removeItem(LIFECYCLE_FIELD_CONFIG_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+export const LIFECYCLE_FIELD_CONFIG_PERSIST_EVENT = "dsms-lifecycle-field-config-persisted";
+
+function bumpLifecycleConfigListeners() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(LIFECYCLE_FIELD_CONFIG_PERSIST_EVENT));
+  }
+}
 
 /** 内置：数据字段（主数据条目，单选） */
 export const LIFECYCLE_BUILTIN_DATA_FIELD_KEY = "data_field";
@@ -129,17 +150,9 @@ function normalizeStoredItem(raw, index) {
 
 /** @returns {ReturnType<typeof configItemToTableRow>[]} */
 export function loadLifecycleFieldConfigTableRows() {
-  let parsed = [];
-  try {
-    const raw = sessionStorage.getItem(LIFECYCLE_FIELD_CONFIG_STORAGE_KEY);
-    if (raw) {
-      const data = JSON.parse(raw);
-      if (Array.isArray(data)) parsed = data.map((row, i) => configItemToTableRow(normalizeStoredItem(row, i)));
-    }
-  } catch {
-    parsed = [];
-  }
-  return mergeWithBuiltinLifecycleRows(parsed);
+  clearLegacySessionStorage();
+  const cached = getLifecycleFieldsCache();
+  return mergeWithBuiltinLifecycleRows(cached?.length ? cached : []);
 }
 
 /** 供功能 FO 填报表使用的列顺序：数据字段、业务功能、其余按 sort_order */
@@ -163,24 +176,9 @@ export function buildEmptyLifecycleFillRow(columnKeys, columnsMeta) {
 
 /** @param {ReturnType<typeof configItemToTableRow>[]} rows */
 export function persistLifecycleFieldConfigFromTableRows(rows) {
-  const items = rows.map((row, i) => {
-    const allowed = parseAllowedValuesCommaText(row.allowed_values_text);
-    return {
-      field_key: String(row.field_key || "").trim(),
-      label: String(row.label || "").trim(),
-      input_type: row.input_type,
-      is_builtin: Boolean(row.is_builtin),
-      sort_order: typeof row.sort_order === "number" ? row.sort_order : i,
-      help_text: row.help_text || null,
-      required: Boolean(row.required),
-      min_length: row.min_length != null ? row.min_length : null,
-      max_length: row.max_length != null ? row.max_length : null,
-      regex_pattern: row.regex_pattern || null,
-      regex_error_message: row.regex_error_message || null,
-      allowed_values: allowed
-    };
-  });
-  sessionStorage.setItem(LIFECYCLE_FIELD_CONFIG_STORAGE_KEY, JSON.stringify(items));
+  const items = tableRowsToConfigItems(rows);
+  setLifecycleFieldsCache(items);
+  bumpLifecycleConfigListeners();
 }
 
 /** @returns {LifecycleFieldConfigItem[]} */

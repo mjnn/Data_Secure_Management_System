@@ -1,7 +1,16 @@
 import axios from "axios";
 
 // 开发环境走 Vite 代理（同域 /api → 后端），避免 localhost 与 127.0.0.1 混用导致 CORS 拦截登录
-const baseURL = import.meta.env.VITE_API_BASE ?? (import.meta.env.DEV ? "" : "http://127.0.0.1:8000");
+function resolveApiBase() {
+  if (import.meta.env.VITE_API_BASE != null && import.meta.env.VITE_API_BASE !== "") {
+    return import.meta.env.VITE_API_BASE;
+  }
+  if (import.meta.env.DEV) return "";
+  const base = import.meta.env.BASE_URL || "/";
+  return base === "/" ? "" : base.replace(/\/$/, "");
+}
+
+const baseURL = resolveApiBase();
 
 const api = axios.create({
   baseURL

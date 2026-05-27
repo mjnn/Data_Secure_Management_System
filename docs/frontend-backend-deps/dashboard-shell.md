@@ -3,28 +3,23 @@
 ## 1. 前端入口
 
 - **组件**：`frontend/src/views/DashboardPage.vue`（顶栏 `el-dropdown`、项目切换对话框等）
+- **租户上下文**：`frontend/src/composables/usePortalTenantContext.js`
 - **路由**：壳层路由为 `/`，子路由由 `router-view` 承载。
 
 ## 2. 当前实现状态
 
-- **已接真实 API**：`GET /api/v1/users/me`（顶栏用户展示、`menuVisibilityForRole`）。
-- **Mock / 仅前端**：
-  - **项目切换** 对话框内列表为 **`MOCK_PROJECTS` 常量**，与 `ProjectManagementPage` 的 `sessionStorage` **不同步**。
-  - 当前选中项存 **`sessionStorage`** 键 `dsms_portal_mock_current_tenant`；**未**调用项目列表 API。
-- **项目管理菜单项**：顶栏下拉中 **「项目管理」** 仅 **`system_admin`** 可见（`v-if`）；侧栏同。导航至 `dashboard-project-management`，依赖见 [project-management.md](./project-management.md)。
+- **已接真实 API**
+  - `GET /api/v1/users/me` — 顶栏用户展示、`menuVisibilityForRole`
+  - `GET /api/v1/dsms/tenants` — 项目切换列表（与项目管理页同源）
+  - 当前选中项目：`localStorage` 键 `dsms_portal_selected_tenant_v1`；切换时 `switchTenant` 重拉空间、`bootstrapSpaceConfig`
+- **已移除**：`portalProjectsMock.js` 与 `sessionStorage` 项目种子
 
-## 3. 待对接 API
+## 3. 待对接 / 缺口
 
-| 前端能力 | HTTP | 路径 | 说明 |
-|----------|------|------|------|
-| 当前用户可选项目列表 | GET | 与 `project-management` 列表一致或精简字段 | 用于顶栏展示与切换 |
-| 切换「当前工作项目」上下文 | **待定义** | 可仅为前端 `pinia`/路由 `query`，或由 `PATCH /users/me/preferences` 类接口持久化 | 与产品定稿后补表 |
+- 若产品要求服务端持久化「当前工作项目」，需规格定义偏好接口；当前为前端 localStorage
 
-## 4. 与规格的差异 / 缺口
+## 4. 联调检查清单
 
-- 规格中 **「当前项目」** 的全局上下文若由后端会话或 JWT 声明，需与前端存储策略对齐。
-
-## 5. 联调检查清单
-
-- [ ] 切换项目后，依赖 `tenant_id` 的子页面请求均带正确上下文
+- [ ] 切换项目后，依赖 `tenant_id` / `space_id` 的子页面请求均正确
+- [ ] 新建项目后顶栏列表刷新（`refreshTenants`）
 - [ ] 下拉与对话框在无数据、403 时的降级提示

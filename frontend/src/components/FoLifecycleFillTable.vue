@@ -21,48 +21,44 @@
             <template v-if="boundFunctionIds.length <= 1">
               <span class="flft__readonly">{{ boundFunctionLabelSingle }}</span>
             </template>
-            <el-select
+            <dsms-filterable-select
               v-else
               :model-value="row[col.field_key]"
               class="flft__cell-select"
-              filterable
               clearable
               placeholder="搜索并选择业务功能"
               @update:model-value="patchRow($index, col.field_key, $event)"
             >
               <el-option v-for="fid in boundFunctionIds" :key="fid" :label="functionName(fid)" :value="fid" />
-            </el-select>
+            </dsms-filterable-select>
           </template>
           <template v-else-if="col.field_key === dataFieldKey">
-            <el-select
+            <dsms-filterable-select
               :model-value="row[col.field_key]"
               class="flft__cell-select"
-              filterable
               clearable
               placeholder="搜索并选择数据字段"
               @update:model-value="patchRow($index, col.field_key, $event)"
             >
               <el-option v-for="opt in dataFieldOptions" :key="opt" :label="opt" :value="opt" />
-            </el-select>
+            </dsms-filterable-select>
           </template>
           <template v-else-if="col.input_type === 'single_select'">
-            <el-select
+            <dsms-filterable-select
               :model-value="row[col.field_key]"
               class="flft__cell-select"
-              filterable
               clearable
               placeholder="请选择"
               @update:model-value="patchRow($index, col.field_key, $event)"
             >
               <el-option v-for="opt in col.allowed_values || []" :key="opt" :label="opt" :value="opt" />
-            </el-select>
+            </dsms-filterable-select>
           </template>
           <template v-else-if="col.input_type === 'multi_select'">
-            <el-select
+            <dsms-filterable-select
               :model-value="row[col.field_key] || []"
               class="flft__cell-select"
               multiple
-              filterable
               collapse-tags
               collapse-tags-tooltip
               clearable
@@ -70,7 +66,7 @@
               @update:model-value="patchRow($index, col.field_key, $event)"
             >
               <el-option v-for="opt in col.allowed_values || []" :key="opt" :label="opt" :value="opt" />
-            </el-select>
+            </dsms-filterable-select>
           </template>
           <template v-else-if="col.input_type === 'textarea'">
             <el-input
@@ -104,6 +100,7 @@
 <script setup>
 import { QuestionFilled } from "@element-plus/icons-vue";
 import { computed } from "vue";
+import DsmsFilterableSelect from "./DsmsFilterableSelect.vue";
 import {
   buildEmptyLifecycleFillRow,
   LIFECYCLE_BUILTIN_BUSINESS_FUNCTION_KEY,

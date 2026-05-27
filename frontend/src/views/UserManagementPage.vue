@@ -3,7 +3,7 @@
     <header class="user-mgmt__header dsms-animate-stagger-1">
       <h2 id="user-mgmt-title" class="user-mgmt__title">用户管理</h2>
       <p class="user-mgmt__lead">
-        以下为前端演示数据与完整交互壳层；保存类操作将提示「正在开发中」，待对接后端接口。
+        用户目录与项目成员来自后端 API；功能 FO「负责功能」由管理员在下方抽屉直接维护绑定。
       </p>
       <p v-if="meReady && isSecurityFo && !isSystemAdmin" class="user-mgmt__hint user-mgmt__hint--role">
         当前为数据安全 FO：仅可浏览与筛选用户列表。批量导入/停用、项目成员批量变更、设置项目管理员与平台角色、项目创建权维护等入口已对当前角色隐藏。
@@ -22,16 +22,16 @@
           />
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="filters.isActive" placeholder="全部" clearable style="width: 120px">
+          <dsms-filterable-select v-model="filters.isActive" placeholder="全部" clearable style="width: 120px">
             <el-option label="全部" :value="null" />
             <el-option label="仅启用" :value="true" />
             <el-option label="仅停用" :value="false" />
-          </el-select>
+          </dsms-filterable-select>
         </el-form-item>
         <el-form-item label="项目预览">
-          <el-select v-model="filters.previewTenantId" placeholder="不筛选" clearable style="width: 160px">
-            <el-option v-for="t in mockTenants" :key="t.id" :label="t.name" :value="t.id" />
-          </el-select>
+          <dsms-filterable-select v-model="filters.previewTenantId" placeholder="不筛选" clearable style="width: 160px">
+            <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
+          </dsms-filterable-select>
         </el-form-item>
         <el-form-item v-if="filters.previewTenantId != null">
           <el-checkbox v-model="filters.onlyUnassigned">仅未加入该项目</el-checkbox>
@@ -136,7 +136,7 @@
       <el-pagination
         v-model:current-page="pagination.page"
         v-model:page-size="pagination.pageSize"
-        :total="filteredUsers.length"
+        :total="usersTotal"
         :page-sizes="[10, 20, 50, 100]"
         layout="total, sizes, prev, pager, next, jumper"
         background
@@ -146,15 +146,14 @@
     <el-collapse v-if="showAdminUserMgmtChrome" class="user-mgmt__collapse">
       <el-collapse-item title="项目创建权名单（全量维护）" name="creators">
         <p class="user-mgmt__collapse-hint">对应平台接口全量替换名单；以下为演示多选。</p>
-        <el-select
+        <dsms-filterable-select
           v-model="tenantCreatorIds"
           multiple
-          filterable
-          placeholder="选择具备项目创建权的用户"
+          placeholder="搜索并选择具备项目创建权的用户"
           style="width: 100%; max-width: 560px"
         >
-          <el-option v-for="u in allUsersFlat" :key="u.id" :label="`${u.username}（${u.full_name || '—'}）`" :value="u.id" />
-        </el-select>
+          <el-option v-for="u in creatorPickerUsers" :key="u.id" :label="`${u.username}（${u.full_name || '—'}）`" :value="u.id" />
+        </dsms-filterable-select>
         <el-button class="user-mgmt__collapse-save" type="primary" @click="onSaveTenantCreators">保存名单</el-button>
       </el-collapse-item>
     </el-collapse>
@@ -164,13 +163,13 @@
       <p class="user-mgmt__dialog-p">
         必填列：<strong>邮箱</strong>；可选：用户名、姓名、部门。导入结果与跳过行由后端返回。
       </p>
-      <el-upload drag :auto-upload="false" :limit="1" accept=".xlsx,.xls" @change="onExcelFileChange">
+      <el-upload drag :auto-upload="false" :limit="1" accept=".xlsx" @change="onExcelFileChange">
         <el-icon class="el-icon--upload"><Upload /></el-icon>
         <div class="el-upload__text">将文件拖到此处，或<em>点击选择</em></div>
       </el-upload>
       <template #footer>
         <el-button @click="excelDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :disabled="!excelFileName" @click="onExcelImportSubmit">开始导入</el-button>
+        <el-button type="primary" :disabled="!excelFileName" :loading="excelImporting" @click="onExcelImportSubmit">开始导入</el-button>
       </template>
     </el-dialog>
 
@@ -178,9 +177,9 @@
     <el-dialog v-model="joinTenantVisible" title="将选中用户加入项目" width="480px" destroy-on-close>
       <el-form label-position="top">
         <el-form-item label="目标项目">
-          <el-select v-model="joinTenantForm.tenantId" placeholder="请选择" style="width: 100%">
-            <el-option v-for="t in mockTenants" :key="t.id" :label="t.name" :value="t.id" />
-          </el-select>
+          <dsms-filterable-select v-model="joinTenantForm.tenantId" placeholder="请选择" style="width: 100%">
+            <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
+          </dsms-filterable-select>
         </el-form-item>
         <el-form-item label="成员角色">
           <el-radio-group v-model="joinTenantForm.role">
@@ -202,9 +201,9 @@
       </el-alert>
       <el-form label-position="top">
         <el-form-item label="项目">
-          <el-select v-model="removeTenantForm.tenantId" placeholder="请选择" style="width: 100%">
-            <el-option v-for="t in mockTenants" :key="t.id" :label="t.name" :value="t.id" />
-          </el-select>
+          <dsms-filterable-select v-model="removeTenantForm.tenantId" placeholder="请选择" style="width: 100%">
+            <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
+          </dsms-filterable-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -220,9 +219,9 @@
       <template v-if="tenantRoleUser">
         <el-form label-position="top">
           <el-form-item label="选择项目">
-            <el-select v-model="tenantRoleForm.tenantId" placeholder="请选择" style="width: 100%" @change="syncTenantRolePreview">
-              <el-option v-for="t in mockTenants" :key="t.id" :label="t.name" :value="t.id" />
-            </el-select>
+            <dsms-filterable-select v-model="tenantRoleForm.tenantId" placeholder="请选择" style="width: 100%" @change="syncTenantRolePreview">
+              <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
+            </dsms-filterable-select>
           </el-form-item>
           <el-form-item v-if="tenantRolePreview != null" label="当前角色">
             <el-tag size="small">{{ tenantRolePreviewLabel }}</el-tag>
@@ -267,26 +266,30 @@
         <p class="user-mgmt__dialog-p">用户：{{ foDrawerUser.username }}</p>
         <el-form label-position="top" class="user-mgmt__fo-form">
           <el-form-item label="项目">
-            <el-select v-model="foForm.tenantId" style="width: 100%" @change="foForm.spaceId = mockSpaces[0]?.id ?? null">
-              <el-option v-for="t in mockTenants" :key="t.id" :label="t.name" :value="t.id" />
-            </el-select>
+            <dsms-filterable-select v-model="foForm.tenantId" style="width: 100%" @change="onFoTenantChange">
+              <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
+            </dsms-filterable-select>
           </el-form-item>
           <el-form-item label="项目空间">
-            <el-select v-model="foForm.spaceId" style="width: 100%">
-              <el-option v-for="s in mockSpaces" :key="s.id" :label="s.name" :value="s.id" />
-            </el-select>
+            <dsms-filterable-select v-model="foForm.spaceId" style="width: 100%" @change="onFoSpaceChange">
+              <el-option v-for="s in foSpaces" :key="s.id" :label="s.name" :value="s.id" />
+            </dsms-filterable-select>
           </el-form-item>
         </el-form>
         <el-transfer
           v-model="foTransferValue"
+          v-loading="foBindingLoading"
           class="user-mgmt__transfer"
           filterable
           :titles="['可选业务功能', '已绑定负责']"
           :data="foTransferData"
         />
+        <p v-if="foBindingPending" class="user-mgmt__form-hint">
+          该用户有待审批的绑定变更申请；保存后将直接覆盖为当前选择（不经审批流）。
+        </p>
         <div class="user-mgmt__drawer-footer user-mgmt__drawer-footer--mt">
           <el-button @click="foDrawerVisible = false">取消</el-button>
-          <el-button type="primary" @click="onFoBindingSave">保存绑定</el-button>
+          <el-button type="primary" :loading="foBindingSaving" @click="onFoBindingSave">保存绑定</el-button>
         </div>
       </template>
     </el-drawer>
@@ -299,44 +302,67 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import api from "../api";
+import DsmsFilterableSelect from "../components/DsmsFilterableSelect.vue";
+import {
+  batchAddTenantMembers,
+  batchDeactivateUsers,
+  batchRemoveTenantMembers,
+  batchSetPlatformRole,
+  downloadUserImportTemplate,
+  fetchSpaces,
+  fetchTenantCreators,
+  fetchTenantMembers,
+  fetchUsersDirectory,
+  importUsersExcel,
+  setTenantMemberRole,
+  updateTenantCreators
+} from "../api/dsmsSpaceApi.js";
+import {
+  fetchBusinessFunctions,
+  fetchUserFoBindings,
+  setUserFoBindings
+} from "../api/portalApi.js";
+import { useCurrentUser } from "../composables/useCurrentUser.js";
+import { ensurePortalTenantReady, usePortalTenantContext } from "../composables/usePortalTenantContext.js";
 import { effectivePlatformRole, PLATFORM_ROLE } from "../composables/usePortalMenuVisibility";
 
-const DEV_TIP = "正在开发中，尚未对接后端接口。";
-
-const stub = () => {
-  ElMessage.info(DEV_TIP);
-};
-
 const router = useRouter();
-const me = ref(null);
-const meReady = ref(false);
+const { tenants: tenantOptions, ready: tenantReady } = usePortalTenantContext();
+const { user: me, ready: meReady, ensureCurrentUser } = useCurrentUser();
+
+ensureCurrentUser();
 
 const effectiveRole = computed(() => effectivePlatformRole(me.value));
 const isSystemAdmin = computed(() => effectiveRole.value === PLATFORM_ROLE.SYSTEM_ADMIN);
 const isSecurityFo = computed(() => effectiveRole.value === PLATFORM_ROLE.SECURITY_FO);
+const canBrowseUsers = computed(() => isSystemAdmin.value || isSecurityFo.value);
 const canPromoteProjectAdmin = computed(() => isSystemAdmin.value);
 const showAdminUserMgmtChrome = computed(() => meReady.value && isSystemAdmin.value);
 
-const loadMe = async () => {
-  meReady.value = false;
-  try {
-    const { data } = await api.get("/api/v1/users/me");
-    me.value = data;
-    const role = effectivePlatformRole(data);
-    if (role === PLATFORM_ROLE.FUNCTION_FO) {
-      ElMessage.warning("当前角色无权访问用户管理。");
-      await router.replace({ name: "dashboard-home" });
-      return;
-    }
-  } catch {
-    /* 未登录等由全局路由守卫处理 */
-  } finally {
-    meReady.value = true;
+onMounted(async () => {
+  await Promise.all([ensureCurrentUser(), ensurePortalTenantReady()]);
+  const role = effectivePlatformRole(me.value);
+  if (role === PLATFORM_ROLE.FUNCTION_FO) {
+    ElMessage.warning("当前角色无权访问用户管理。");
+    await router.replace({ name: "dashboard-home" });
+    return;
   }
-};
+  if (tenantReady.value) loadUsersFromApi();
+  if (meReady.value && isSystemAdmin.value) {
+    loadTenantCreators();
+    loadCreatorPickerUsers();
+  }
+});
 
-onMounted(() => {
-  loadMe();
+watch(tenantReady, (v) => {
+  if (v) loadUsersFromApi();
+});
+
+watch(meReady, (v) => {
+  if (v && isSystemAdmin.value) {
+    loadTenantCreators();
+    loadCreatorPickerUsers();
+  }
 });
 
 function assertSystemAdmin() {
@@ -362,95 +388,80 @@ function jwtUsername() {
   }
 }
 
-const mockTenants = [
-  { id: 1, name: "默认项目" },
-  { id: 2, name: "演示项目 B" }
-];
+const users = ref([]);
+const usersTotal = ref(0);
+const usersLoading = ref(false);
 
-const mockSpaces = [
-  { id: 101, name: "主数据空间" },
-  { id: 102, name: "试验空间" }
-];
-
-const SEED_USERS = [
-  {
-    id: 1,
-    username: "admin",
-    email: "admin@local.dsms",
-    full_name: "系统管理员",
-    department: "信息中心",
-    platform_role: "system_admin",
-    is_superuser: true,
-    is_active: true,
-    created_at: "2025-11-02",
-    memberships: [{ tenantId: 1, tenantName: "默认项目", role: "tenant_admin" }]
-  },
-  {
-    id: 2,
-    username: "security_fo",
-    email: "security_fo@local.dsms",
-    full_name: "数据安全 FO",
-    department: "安全办",
-    platform_role: "security_fo",
-    is_superuser: false,
-    is_active: true,
-    created_at: "2025-11-03",
-    memberships: [{ tenantId: 1, tenantName: "默认项目", role: "tenant_member" }]
-  },
-  {
-    id: 3,
-    username: "function_fo",
-    email: "function_fo@local.dsms",
-    full_name: "功能 FO",
-    department: "业务架构",
-    platform_role: "function_fo",
-    is_superuser: false,
-    is_active: true,
-    created_at: "2025-11-03",
-    memberships: [
-      { tenantId: 1, tenantName: "默认项目", role: "tenant_member" },
-      { tenantId: 2, tenantName: "演示项目 B", role: "tenant_member" }
-    ]
-  },
-  {
-    id: 4,
-    username: "zhangsan",
-    email: "zhangsan@example.com",
-    full_name: "张三",
-    department: "研发一部",
-    platform_role: "security_fo",
-    is_superuser: false,
-    is_active: true,
-    created_at: "2025-12-10",
-    memberships: []
-  },
-  {
-    id: 5,
-    username: "lisi",
-    email: "lisi@example.com",
-    full_name: "李四",
-    department: "研发二部",
-    platform_role: "security_fo",
-    is_superuser: false,
-    is_active: false,
-    created_at: "2025-12-11",
-    memberships: [{ tenantId: 2, tenantName: "演示项目 B", role: "tenant_admin" }]
-  },
-  {
-    id: 6,
-    username: "wangwu",
-    email: "wangwu@example.com",
-    full_name: "王五",
-    department: null,
-    platform_role: "security_fo",
-    is_superuser: false,
-    is_active: true,
-    created_at: "2026-01-05",
-    memberships: [{ tenantId: 1, tenantName: "默认项目", role: "tenant_member" }]
+async function buildMembershipMap() {
+  const map = new Map();
+  for (const t of tenantOptions.value || []) {
+    try {
+      const members = await fetchTenantMembers(t.id);
+      for (const m of members) {
+        if (!map.has(m.user_id)) map.set(m.user_id, []);
+        map.get(m.user_id).push({
+          tenantId: t.id,
+          tenantName: t.name,
+          role: m.role
+        });
+      }
+    } catch {
+      /* 单项目成员拉取失败时跳过 */
+    }
   }
-];
+  return map;
+}
 
-const users = ref(SEED_USERS.map((u) => ({ ...u, memberships: u.memberships.map((m) => ({ ...m })) })));
+async function loadUsersFromApi() {
+  if (!meReady.value || !canBrowseUsers.value) return;
+  usersLoading.value = true;
+  try {
+    const params = {
+      skip: (pagination.page - 1) * pagination.pageSize,
+      limit: pagination.pageSize,
+      q: filters.q.trim() || undefined,
+      is_active: filters.isActive ?? undefined,
+      membership_preview_tenant_id: filters.previewTenantId ?? undefined,
+      only_unassigned_to_tenant:
+        filters.onlyUnassigned && filters.previewTenantId != null ? filters.previewTenantId : undefined
+    };
+    const data = await fetchUsersDirectory(params);
+    const memMap = isSystemAdmin.value ? await buildMembershipMap() : new Map();
+    users.value = (data.items || []).map((u) => ({
+      ...u,
+      platform_role: u.platform_role || (u.is_superuser ? "system_admin" : "security_fo"),
+      created_at: typeof u.created_at === "string" ? u.created_at.slice(0, 10) : u.created_at,
+      memberships: memMap.get(u.id) || []
+    }));
+    usersTotal.value = data.total ?? users.value.length;
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "加载用户列表失败");
+  } finally {
+    usersLoading.value = false;
+  }
+}
+
+const creatorPickerUsers = ref([]);
+
+async function loadCreatorPickerUsers() {
+  if (!isSystemAdmin.value) return;
+  try {
+    const data = await fetchUsersDirectory({ skip: 0, limit: 500 });
+    creatorPickerUsers.value = data.items || [];
+  } catch {
+    creatorPickerUsers.value = [];
+  }
+}
+
+async function loadTenantCreators() {
+  if (!isSystemAdmin.value) return;
+  try {
+    const data = await fetchTenantCreators();
+    tenantCreatorIds.value = data.user_ids || [];
+  } catch {
+    tenantCreatorIds.value = [];
+  }
+}
 
 const filters = reactive({
   q: "",
@@ -474,6 +485,7 @@ watch(
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = window.setTimeout(() => {
       pagination.page = 1;
+      loadUsersFromApi();
       debounceTimer = null;
     }, 400);
   }
@@ -483,41 +495,22 @@ onBeforeUnmount(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
 });
 
-const filteredUsers = computed(() => {
-  let list = users.value;
-  const q = filters.q.trim().toLowerCase();
-  if (q) {
-    list = list.filter(
-      (u) =>
-        u.username.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        (u.full_name && u.full_name.toLowerCase().includes(q))
-    );
-  }
-  if (filters.isActive === true || filters.isActive === false) {
-    list = list.filter((u) => u.is_active === filters.isActive);
-  }
-  const tid = filters.previewTenantId;
-  if (tid != null) {
-    if (filters.onlyUnassigned) {
-      list = list.filter((u) => !u.memberships.some((m) => m.tenantId === tid));
-    }
-  }
-  return list;
-});
+const filteredUsers = computed(() => users.value);
 
-const pagedUsers = computed(() => {
-  const start = (pagination.page - 1) * pagination.pageSize;
-  return filteredUsers.value.slice(start, start + pagination.pageSize);
-});
-
-const allUsersFlat = computed(() => users.value);
+const pagedUsers = computed(() => users.value);
 
 watch(
-  () => filteredUsers.value.length,
+  () => usersTotal.value,
   (len) => {
     const maxPage = Math.max(1, Math.ceil(len / pagination.pageSize) || 1);
     if (pagination.page > maxPage) pagination.page = maxPage;
+  }
+);
+
+watch(
+  () => [pagination.page, pagination.pageSize, filters.isActive, filters.previewTenantId, filters.onlyUnassigned],
+  () => {
+    if (meReady.value && canBrowseUsers.value) loadUsersFromApi();
   }
 );
 
@@ -536,6 +529,7 @@ function platformRoleTagType(role) {
 
 function applyFilters() {
   pagination.page = 1;
+  loadUsersFromApi();
 }
 
 function resetFilters() {
@@ -544,6 +538,7 @@ function resetFilters() {
   filters.previewTenantId = null;
   filters.onlyUnassigned = false;
   pagination.page = 1;
+  loadUsersFromApi();
 }
 
 function onSelectionChange(rows) {
@@ -552,24 +547,60 @@ function onSelectionChange(rows) {
 
 function onDownloadTemplate() {
   if (!assertSystemAdmin()) return;
-  stub();
+  downloadUserImportTemplate()
+    .then((res) => {
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "dsms_users_import_template.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    })
+    .catch((e) => {
+      ElMessage.error(e.response?.data?.detail || "下载模板失败");
+    });
 }
 
 const excelDialogVisible = ref(false);
 const excelFileName = ref("");
+const excelFileRef = ref(null);
+const excelImporting = ref(false);
 
 function onExcelFileChange(uploadFile) {
   excelFileName.value = uploadFile?.name || "";
+  excelFileRef.value = uploadFile?.raw || null;
 }
 
 function resetExcelDialog() {
   excelFileName.value = "";
+  excelFileRef.value = null;
 }
 
-function onExcelImportSubmit() {
+async function onExcelImportSubmit() {
   if (!assertSystemAdmin()) return;
-  stub();
-  excelDialogVisible.value = false;
+  if (!excelFileRef.value) {
+    ElMessage.warning("请选择 Excel 文件。");
+    return;
+  }
+  excelImporting.value = true;
+  try {
+    const data = await importUsersExcel(excelFileRef.value);
+    ElMessage.success(`导入完成：新建 ${data.created_count ?? 0}，跳过 ${data.skipped_count ?? 0}。`);
+    if (data.skipped_items?.length) {
+      const sample = data.skipped_items
+        .slice(0, 3)
+        .map((s) => `第${s.row}行 ${s.reason}`)
+        .join("；");
+      ElMessage.warning(`部分行已跳过：${sample}`);
+    }
+    excelDialogVisible.value = false;
+    await loadUsersFromApi();
+    await loadCreatorPickerUsers();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "导入失败");
+  } finally {
+    excelImporting.value = false;
+  }
 }
 
 async function onBatchDeactivate() {
@@ -589,7 +620,17 @@ async function onBatchDeactivate() {
   } catch {
     return;
   }
-  stub();
+  try {
+    const data = await batchDeactivateUsers(selectedRows.value.map((r) => r.id));
+    const n = data.deactivated_user_ids?.length ?? 0;
+    ElMessage.success(`已停用 ${n} 个账号。`);
+    if (data.skipped_items?.length) {
+      ElMessage.warning(`跳过 ${data.skipped_items.length} 个账号（含不可停用项）。`);
+    }
+    await loadUsersFromApi();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "批量停用失败");
+  }
 }
 
 const joinTenantVisible = ref(false);
@@ -597,15 +638,26 @@ const joinTenantForm = reactive({ tenantId: null, role: "tenant_member" });
 
 function openJoinTenant() {
   if (!assertSystemAdmin()) return;
-  joinTenantForm.tenantId = mockTenants[0]?.id ?? null;
+  joinTenantForm.tenantId = tenantOptions.value[0]?.id ?? null;
   joinTenantForm.role = "tenant_member";
   joinTenantVisible.value = true;
 }
 
-function onJoinTenantSubmit() {
+async function onJoinTenantSubmit() {
   if (!assertSystemAdmin()) return;
-  stub();
-  joinTenantVisible.value = false;
+  const tid = joinTenantForm.tenantId;
+  if (tid == null) return;
+  try {
+    await batchAddTenantMembers(
+      tid,
+      selectedRows.value.map((r) => r.id)
+    );
+    ElMessage.success("已加入项目。");
+    joinTenantVisible.value = false;
+    await loadUsersFromApi();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "加入失败");
+  }
 }
 
 const removeTenantVisible = ref(false);
@@ -613,19 +665,31 @@ const removeTenantForm = reactive({ tenantId: null });
 
 function openRemoveTenant() {
   if (!assertSystemAdmin()) return;
-  removeTenantForm.tenantId = mockTenants[0]?.id ?? null;
+  removeTenantForm.tenantId = tenantOptions.value[0]?.id ?? null;
   removeTenantVisible.value = true;
 }
 
-function onRemoveTenantSubmit() {
+async function onRemoveTenantSubmit() {
   if (!assertSystemAdmin()) return;
-  stub();
-  removeTenantVisible.value = false;
+  const tid = removeTenantForm.tenantId;
+  if (tid == null) return;
+  try {
+    await batchRemoveTenantMembers(
+      tid,
+      selectedRows.value.map((r) => r.id)
+    );
+    ElMessage.success("已从项目移除。");
+    removeTenantVisible.value = false;
+    await loadUsersFromApi();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "移除失败");
+  }
 }
 
 const batchRoleDrawer = ref(false);
 const batchPlatformRole = ref("security_fo");
 const batchRoleSelectionCount = ref(0);
+const batchRoleUserIds = ref([]);
 
 function openBatchPlatformRole() {
   if (!assertSystemAdmin()) return;
@@ -638,17 +702,28 @@ function openBatchPlatformRole() {
     ElMessage.info("已自动排除超级管理员账号。");
   }
   batchRoleSelectionCount.value = nonSuper.length;
+  batchRoleUserIds.value = nonSuper.map((r) => r.id);
   batchPlatformRole.value = "security_fo";
   batchRoleDrawer.value = true;
 }
 
-function onBatchPlatformRoleSave() {
+async function onBatchPlatformRoleSave() {
   if (!assertSystemAdmin()) return;
-  stub();
-  batchRoleDrawer.value = false;
+  if (!batchRoleUserIds.value.length) return;
+  try {
+    const data = await batchSetPlatformRole(batchRoleUserIds.value, batchPlatformRole.value);
+    ElMessage.success(`已更新 ${data.updated_user_ids?.length ?? 0} 个用户的平台角色。`);
+    if (data.skipped_items?.length) {
+      ElMessage.warning(`跳过 ${data.skipped_items.length} 个账号。`);
+    }
+    batchRoleDrawer.value = false;
+    await loadUsersFromApi();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "保存失败");
+  }
 }
 
-const tenantCreatorIds = ref([1]);
+const tenantCreatorIds = ref([]);
 
 async function onSaveTenantCreators() {
   if (!assertSystemAdmin()) return;
@@ -661,7 +736,12 @@ async function onSaveTenantCreators() {
   } catch {
     return;
   }
-  stub();
+  try {
+    await updateTenantCreators(tenantCreatorIds.value);
+    ElMessage.success("项目创建权名单已保存。");
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "保存失败");
+  }
 }
 
 const tenantRoleVisible = ref(false);
@@ -677,7 +757,7 @@ const tenantRolePreviewLabel = computed(() => {
 
 function openTenantRoleDialog(row) {
   tenantRoleUser.value = row;
-  tenantRoleForm.tenantId = mockTenants[0]?.id ?? null;
+  tenantRoleForm.tenantId = tenantOptions.value[0]?.id ?? null;
   syncTenantRolePreview();
   tenantRoleVisible.value = true;
 }
@@ -695,6 +775,9 @@ function syncTenantRolePreview() {
 
 async function onPromoteTenantAdmin() {
   if (!assertSystemAdmin()) return;
+  const tid = tenantRoleForm.tenantId;
+  const user = tenantRoleUser.value;
+  if (tid == null || !user?.id) return;
   try {
     await ElMessageBox.confirm("将该用户设为所选项目的「项目管理员」？", "升为项目管理员", {
       type: "warning",
@@ -704,31 +787,90 @@ async function onPromoteTenantAdmin() {
   } catch {
     return;
   }
-  stub();
+  try {
+    await setTenantMemberRole(tid, user.id, "tenant_admin");
+    ElMessage.success("已设为项目管理员。");
+    tenantRoleVisible.value = false;
+    await loadUsersFromApi();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "操作失败");
+  }
 }
 
 const foDrawerVisible = ref(false);
 const foDrawerUser = ref(null);
-const foForm = reactive({ tenantId: 1, spaceId: 101 });
-const foTransferData = [
-  { key: "bf-usage", label: "字段填报" },
-  { key: "bf-request", label: "字段申请" },
-  { key: "bf-catalog", label: "主数据维护" },
-  { key: "bf-report", label: "用量上报" }
-];
-const foTransferValue = ref(["bf-usage"]);
+const foForm = reactive({ tenantId: null, spaceId: null });
+const foSpaces = ref([]);
+const foTransferData = ref([]);
+const foTransferValue = ref([]);
+const foBindingLoading = ref(false);
+const foBindingSaving = ref(false);
+const foBindingPending = ref(false);
+
+async function loadFoBindingPanel() {
+  const uid = foDrawerUser.value?.id;
+  const tid = foForm.tenantId;
+  const sid = foForm.spaceId;
+  if (!uid || tid == null || sid == null) return;
+  foBindingLoading.value = true;
+  try {
+    const functions = await fetchBusinessFunctions(tid, sid);
+    foTransferData.value = functions.map((f) => ({
+      key: f.id,
+      label: f.name
+    }));
+    const binding = await fetchUserFoBindings(tid, sid, uid);
+    foTransferValue.value = binding?.function_keys || [];
+    foBindingPending.value = !!binding?.has_pending_binding_request;
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "加载业务功能绑定失败");
+    foTransferData.value = [];
+    foTransferValue.value = [];
+  } finally {
+    foBindingLoading.value = false;
+  }
+}
+
+async function onFoTenantChange() {
+  foForm.spaceId = null;
+  foSpaces.value = [];
+  if (foForm.tenantId == null) return;
+  try {
+    foSpaces.value = await fetchSpaces(foForm.tenantId);
+    foForm.spaceId = foSpaces.value[0]?.id ?? null;
+    await loadFoBindingPanel();
+  } catch {
+    foSpaces.value = [];
+  }
+}
+
+async function onFoSpaceChange() {
+  await loadFoBindingPanel();
+}
 
 function openFunctionFoDrawer(row) {
   foDrawerUser.value = row;
-  foForm.tenantId = mockTenants[0].id;
-  foForm.spaceId = mockSpaces[0].id;
-  foTransferValue.value = ["bf-usage"];
+  foForm.tenantId = tenantOptions.value[0]?.id ?? null;
   foDrawerVisible.value = true;
+  onFoTenantChange();
 }
 
-function onFoBindingSave() {
-  stub();
-  foDrawerVisible.value = false;
+async function onFoBindingSave() {
+  if (!assertSystemAdmin()) return;
+  const uid = foDrawerUser.value?.id;
+  const tid = foForm.tenantId;
+  const sid = foForm.spaceId;
+  if (!uid || tid == null || sid == null) return;
+  foBindingSaving.value = true;
+  try {
+    await setUserFoBindings(tid, sid, uid, foTransferValue.value);
+    ElMessage.success("业务功能绑定已保存。");
+    foDrawerVisible.value = false;
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "保存绑定失败");
+  } finally {
+    foBindingSaving.value = false;
+  }
 }
 </script>
 

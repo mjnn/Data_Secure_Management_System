@@ -2,11 +2,10 @@
   <section class="fcp dsms-glass-panel dsms-animate-stagger-0" aria-labelledby="fcp-title">
     <header class="fcp__header dsms-animate-stagger-1">
       <h2 id="fcp-title" class="fcp__title">数据字段</h2>
-      <p v-if="!me" class="fcp__lead">正在加载当前用户…</p>
-      <template v-else-if="isSecOrAdmin">
+      <template v-if="isSecOrAdmin">
         <p class="fcp__lead">
           维护动态表单中「数据字段」单选的下拉选项；关联业务功能清单来自<strong>已审核通过</strong>的填报任务明细（<code class="fcp__code">foFillLifecycleRows</code> 中
-          <code class="fcp__code">data_field</code> × <code class="fcp__code">business_function</code>）。功能 FO 对新增/删除须提交申请，在本页下方<strong>待处理申请</strong>中审核。
+          <code class="fcp__code">data_field</code> × <code class="fcp__code">business_function</code>）。功能 FO 对新增/删除须提交申请，可在本页或<strong>审批管理</strong>中审核。
         </p>
       </template>
       <template v-else-if="isFunctionFo">
@@ -17,7 +16,7 @@
       <p v-else class="fcp__lead">当前角色无此页访问说明。</p>
     </header>
 
-    <template v-if="me && (isSecOrAdmin || isFunctionFo)">
+    <template v-if="meReady && (isSecOrAdmin || isFunctionFo)">
       <template v-if="isSecOrAdmin">
         <div class="fcp__toolbar dsms-animate-stagger-2">
           <el-button type="primary" @click="openSecCreate">新增数据字段</el-button>
@@ -170,27 +169,41 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import api from "../api";
+import { useCurrentUser } from "../composables/useCurrentUser.js";
 import { effectivePlatformRole, PLATFORM_ROLE } from "../composables/usePortalMenuVisibility";
-import { MOCK_FO_BOUND_FUNCTION_IDS } from "../composables/useSubmissionTaskFoReminderCount";
+import { ensurePortalTenantReady, usePortalTenantContext } from "../composables/usePortalTenantContext.js";
 import {
-  addDataFieldCatalogEntryDirect,
+  approveApprovalRequest,
+  createFieldCatalogEntry,
+  deleteFieldCatalogEntry,
+  fetchApprovalRequests,
+  fetchFieldCatalog,
+  fetchMyFoBindings,
+  fetchPendingFieldCatalogApprovals,
+  fetchSubmissionTasks,
+  PORTAL_DATA_REFRESH_EVENT,
+  rejectApprovalRequest,
+  submitFieldCatalogChangeRequest,
+  updateFieldCatalogEntry
+} from "../api/portalApi.js";
+import {
   aggregateDataFieldLabelToFunctionIdsFromApprovedSubmissions,
-  approveCatalogRequest,
-  DATA_FIELD_CATALOG_PERSIST_EVENT,
-  filterCatalogEntriesForFunctionFo,
-  formatRelatedFunctionNames as formatRelatedFunctionNamesFromCatalog,
-  loadCatalogRequests,
-  loadDataFieldCatalogEntries,
-  rejectCatalogRequest,
-  removeDataFieldCatalogEntryDirect,
-  submitCatalogRequest,
-  updateDataFieldCatalogEntryDirect
+  formatRelatedFunctionNames as formatRelatedFunctionNamesFromCatalog
 } from "../data/dataFieldCatalogMock.js";
 import { submissionFunctionName } from "../data/submissionTasksMock.js";
+import {
+  APPROVAL_TYPE_FIELD_CATALOG_CREATE,
+  APPROVAL_TYPE_FIELD_CATALOG_DELETE
+} from "../data/approvalRequestsMock.js";
 
-const me = ref(null);
-const refreshTick = ref(0);
+const { tenantId, spaceId, ready } = usePortalTenantContext();
+const { user: me, ready: meReady, ensureCurrentUser } = useCurrentUser();
+
+ensureCurrentUser();
+const catalogEntries = ref([]);
+const boundFunctionIds = ref([]);
+const pendingApprovals = ref([]);
+const myApprovals = ref([]);
 
 const isSecOrAdmin = computed(() => {
   const r = effectivePlatformRole(me.value);
@@ -200,80 +213,101 @@ const isSecOrAdmin = computed(() => {
 const isFunctionFo = computed(() => effectivePlatformRole(me.value) === PLATFORM_ROLE.FUNCTION_FO);
 
 const boundFunctionNames = computed(() =>
-  MOCK_FO_BOUND_FUNCTION_IDS.map((id) => submissionFunctionName(id)).join("、")
+  boundFunctionIds.value.map((id) => submissionFunctionName(id)).join("、")
 );
 
-function bumpLocal() {
-  refreshTick.value++;
-}
-
 function relatedNamesForBound(label) {
-  void refreshTick.value;
   const m = aggregateDataFieldLabelToFunctionIdsFromApprovedSubmissions();
   const set = m.get(String(label || "").trim());
   if (!set || !set.size) return "—";
-  const bound = new Set(MOCK_FO_BOUND_FUNCTION_IDS);
+  const bound = new Set(boundFunctionIds.value);
   const names = [...set].filter((id) => bound.has(id)).map((id) => submissionFunctionName(id));
   return names.length ? names.join("、") : "—";
 }
 
 function formatRelatedAll(label) {
-  void refreshTick.value;
   return formatRelatedFunctionNamesFromCatalog(label);
 }
 
-const secCatalogRows = computed(() => {
-  void refreshTick.value;
-  return [...loadDataFieldCatalogEntries()].sort((a, b) =>
-    String(a.label || "").localeCompare(String(b.label || ""), "zh-Hans-CN")
-  );
-});
+const secCatalogRows = computed(() =>
+  [...catalogEntries.value].sort((a, b) => String(a.label || "").localeCompare(String(b.label || ""), "zh-Hans-CN"))
+);
 
 const foCatalogRows = computed(() => {
-  void refreshTick.value;
-  return filterCatalogEntriesForFunctionFo(MOCK_FO_BOUND_FUNCTION_IDS).sort((a, b) =>
-    String(a.label || "").localeCompare(String(b.label || ""), "zh-Hans-CN")
-  );
+  const bound = new Set(boundFunctionIds.value);
+  const m = aggregateDataFieldLabelToFunctionIdsFromApprovedSubmissions();
+  return catalogEntries.value
+    .filter((entry) => {
+      const set = m.get(String(entry.label || "").trim());
+      if (!set || !set.size) return false;
+      return [...set].some((id) => bound.has(id));
+    })
+    .sort((a, b) => String(a.label || "").localeCompare(String(b.label || ""), "zh-Hans-CN"));
 });
 
 const foEmptyText = computed(() =>
   foCatalogRows.value.length ? "" : "暂无与您绑定业务功能相关、且来源于已审核填报的数据字段"
 );
 
-const pendingRequests = computed(() => {
-  void refreshTick.value;
-  return loadCatalogRequests().filter((r) => r.status === "pending");
-});
+function mapFieldApprovalRow(r) {
+  const p = r.payload || {};
+  return {
+    id: String(p.change_request_id || r.id),
+    approvalId: r.id,
+    type: r.type === APPROVAL_TYPE_FIELD_CATALOG_CREATE ? "create" : "delete",
+    status: r.status,
+    proposedLabel: p.proposed_label || p.proposedLabel || "",
+    catalogEntryId: p.catalog_entry_id != null ? String(p.catalog_entry_id) : "",
+    requestedAt: r.requestedAt,
+    requestedBy: r.requestedBy,
+    reviewedAt: r.reviewedAt,
+    rejectReason: r.rejectReason
+  };
+}
 
-const myRequests = computed(() => {
-  void refreshTick.value;
-  const u = me.value?.username;
-  if (!u) return [];
-  return loadCatalogRequests()
-    .filter((r) => r.requestedBy === u)
-    .slice()
-    .reverse();
-});
+const pendingRequests = computed(() =>
+  pendingApprovals.value.map(mapFieldApprovalRow).filter((r) => r.status === "pending")
+);
+
+const myRequests = computed(() =>
+  myApprovals.value.map(mapFieldApprovalRow).slice().reverse()
+);
 
 function hasPendingDelete(catalogEntryId) {
-  void refreshTick.value;
-  return loadCatalogRequests().some(
-    (r) => r.status === "pending" && r.type === "delete" && r.catalogEntryId === catalogEntryId
+  return pendingRequests.value.some(
+    (r) => r.type === "delete" && r.catalogEntryId === String(catalogEntryId)
   );
 }
 
 function deleteRequestLabel(req) {
-  void refreshTick.value;
-  if (req.type !== "delete" || !req.catalogEntryId) return "—";
-  const e = loadDataFieldCatalogEntries().find((x) => x.id === req.catalogEntryId);
-  return e ? `删除：${e.label}` : `删除：${req.catalogEntryId}`;
+  if (req.type !== "delete") return req.proposedLabel || "—";
+  const e = catalogEntries.value.find((x) => String(x.id) === String(req.catalogEntryId));
+  return e ? `删除：${e.label}` : `删除：${req.catalogEntryId || req.proposedLabel}`;
 }
 
-function statusLabel(s) {
-  if (s === "pending") return "待审核";
-  if (s === "approved") return "已通过";
-  if (s === "rejected") return "已驳回";
-  return s || "—";
+async function loadCatalogData() {
+  if (!ready.value || !tenantId.value) return;
+  try {
+    await fetchSubmissionTasks(tenantId.value, spaceId.value);
+    catalogEntries.value = await fetchFieldCatalog(tenantId.value, spaceId.value);
+    pendingApprovals.value = await fetchPendingFieldCatalogApprovals(tenantId.value, spaceId.value);
+    if (isFunctionFo.value && me.value?.id) {
+      const all = await fetchApprovalRequests(tenantId.value, spaceId.value);
+      myApprovals.value = all.filter(
+        (r) =>
+          r.requester_user_id === me.value.id &&
+          (r.type === APPROVAL_TYPE_FIELD_CATALOG_CREATE || r.type === APPROVAL_TYPE_FIELD_CATALOG_DELETE)
+      );
+    } else {
+      myApprovals.value = [];
+    }
+    if (isFunctionFo.value) {
+      const binding = await fetchMyFoBindings(tenantId.value, spaceId.value);
+      boundFunctionIds.value = binding.function_keys || [];
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "加载字段目录失败");
+  }
 }
 
 const secEditVisible = ref(false);
@@ -304,6 +338,13 @@ function resetSecEdit() {
   secFormRef.value?.clearValidate?.();
 }
 
+function statusLabel(s) {
+  if (s === "pending") return "待审核";
+  if (s === "approved") return "已通过";
+  if (s === "rejected") return "已驳回";
+  return s || "—";
+}
+
 async function submitSecEdit() {
   const form = secFormRef.value;
   if (!form) return;
@@ -313,28 +354,31 @@ async function submitSecEdit() {
     return;
   }
   if (secEditMode.value === "create") {
-    const res = addDataFieldCatalogEntryDirect({
-      label: secForm.value.label,
-      description: secForm.value.description
-    });
-    if (!res.ok) {
-      ElMessage.error(res.message);
+    try {
+      await createFieldCatalogEntry(tenantId.value, spaceId.value, {
+        label: secForm.value.label,
+        description: secForm.value.description
+      });
+      ElMessage.success("已新增数据字段");
+    } catch (e) {
+      ElMessage.error(e.response?.data?.detail || "新增失败");
       return;
     }
-    ElMessage.success(res.message);
   } else {
-    const res = updateDataFieldCatalogEntryDirect(secEditingId.value, {
-      label: secForm.value.label,
-      description: secForm.value.description
-    });
-    if (!res.ok) {
-      ElMessage.error(res.message);
+    try {
+      await updateFieldCatalogEntry(tenantId.value, spaceId.value, secEditingId.value, {
+        label: secForm.value.label,
+        description: secForm.value.description,
+        identifier_key: catalogEntries.value.find((e) => e.id === secEditingId.value)?.identifier_key
+      });
+      ElMessage.success("已保存");
+    } catch (e) {
+      ElMessage.error(e.response?.data?.detail || "保存失败");
       return;
     }
-    ElMessage.success(res.message);
   }
   secEditVisible.value = false;
-  bumpLocal();
+  await loadCatalogData();
 }
 
 async function onSecDelete(row) {
@@ -347,23 +391,28 @@ async function onSecDelete(row) {
   } catch {
     return;
   }
-  const res = removeDataFieldCatalogEntryDirect(row.id);
-  if (!res.ok) {
-    ElMessage.error(res.message);
-    return;
+  try {
+    await deleteFieldCatalogEntry(tenantId.value, spaceId.value, row._apiId || row.id);
+    ElMessage.success("已删除");
+    await loadCatalogData();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "删除失败");
   }
-  ElMessage.success(res.message);
-  bumpLocal();
 }
 
 async function onApprove(row) {
-  const res = approveCatalogRequest(row.id);
-  if (!res.ok) {
-    ElMessage.error(res.message);
+  const approvalId = row.approvalId;
+  if (!approvalId) {
+    ElMessage.error("未找到对应审批记录");
     return;
   }
-  ElMessage.success(res.message);
-  bumpLocal();
+  try {
+    const data = await approveApprovalRequest(tenantId.value, spaceId.value, approvalId);
+    ElMessage.success(data.message || "已通过");
+    await loadCatalogData();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "操作失败");
+  }
 }
 
 async function onReject(row) {
@@ -382,13 +431,18 @@ async function onReject(row) {
   } catch {
     return;
   }
-  const res = rejectCatalogRequest(row.id, reason);
-  if (!res.ok) {
-    ElMessage.error(res.message);
+  const approvalId = row.approvalId;
+  if (!approvalId) {
+    ElMessage.error("未找到对应审批记录");
     return;
   }
-  ElMessage.success(res.message);
-  bumpLocal();
+  try {
+    const data = await rejectApprovalRequest(tenantId.value, spaceId.value, approvalId, reason);
+    ElMessage.success(data.message || "已驳回");
+    await loadCatalogData();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "操作失败");
+  }
 }
 
 const foCreateVisible = ref(false);
@@ -415,15 +469,18 @@ async function submitFoCreateRequest() {
   } catch {
     return;
   }
-  submitCatalogRequest({
-    type: "create",
-    proposedLabel: foCreateForm.value.label,
-    proposedDescription: foCreateForm.value.description,
-    requestedBy: me.value?.username || ""
-  });
-  foCreateVisible.value = false;
-  ElMessage.success("已提交新增申请（模拟），请等待数据安全侧审核。");
-  bumpLocal();
+  try {
+    const data = await submitFieldCatalogChangeRequest(tenantId.value, spaceId.value, {
+      request_type: "create",
+      proposed_label: foCreateForm.value.label,
+      proposed_description: foCreateForm.value.description
+    });
+    foCreateVisible.value = false;
+    ElMessage.success(data.message || "已提交新增申请");
+    await loadCatalogData();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "提交失败");
+  }
 }
 
 async function submitDeleteRequest(row) {
@@ -436,37 +493,31 @@ async function submitDeleteRequest(row) {
   } catch {
     return;
   }
-  submitCatalogRequest({
-    type: "delete",
-    catalogEntryId: row.id,
-    proposedLabel: "",
-    proposedDescription: "",
-    requestedBy: me.value?.username || ""
-  });
-  ElMessage.success("已提交删除申请（模拟）。");
-  bumpLocal();
-}
-
-function onCatalogPersist() {
-  bumpLocal();
-}
-
-const loadMe = async () => {
   try {
-    const { data } = await api.get("/api/v1/users/me");
-    me.value = data;
-  } catch {
-    /* 未登录由全局守卫处理 */
+    const data = await submitFieldCatalogChangeRequest(tenantId.value, spaceId.value, {
+      request_type: "delete",
+      proposed_label: row.label,
+      catalog_entry_id: Number(row._apiId || row.id)
+    });
+    ElMessage.success(data.message || "已提交删除申请");
+    await loadCatalogData();
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || "提交失败");
   }
-};
+}
 
-onMounted(() => {
-  loadMe();
-  window.addEventListener(DATA_FIELD_CATALOG_PERSIST_EVENT, onCatalogPersist);
+function onPortalRefresh() {
+  loadCatalogData();
+}
+
+onMounted(async () => {
+  await Promise.all([ensureCurrentUser(), ensurePortalTenantReady()]);
+  await loadCatalogData();
+  window.addEventListener(PORTAL_DATA_REFRESH_EVENT, onPortalRefresh);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener(DATA_FIELD_CATALOG_PERSIST_EVENT, onCatalogPersist);
+  window.removeEventListener(PORTAL_DATA_REFRESH_EVENT, onPortalRefresh);
 });
 </script>
 

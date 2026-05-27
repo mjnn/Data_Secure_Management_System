@@ -77,3 +77,14 @@
 - `max_length`：`check_json` 为 `{"max": 100}`，对主表 `identifier_key` 长度求值（演示用）。
 
 **影响**：`evaluate` 返回结构化 `passed` / `reason` 中文说明。
+
+## D8 — 文档资源模块与数据模型对齐前端 Mock
+
+**决策**（详见 **`docs/DSMS_DATA_MODEL.md`**）：
+
+1. **完全对齐前端 mock** 时，新增/调整表包括但不限于：`approval_request`、`submission_task`、`business_function`、`fo_user_function_binding`、`security_requirement_rule`、`taxonomy_level`、`sensitivity_level`、`field_catalog_change_request`、`field_catalog_value` 等；`field_usage_report` 由 `submission_task` 作为主流程载体。
+2. **文档资源** 使用两表：`document_resource`（法规文件 + 模板 + 导入源 + 导出物）、`document_transfer_job`（导入/导出作业）；文件落盘目录由 **`DSMS_UPLOAD_ROOT`** 配置，SQLite 仅存 metadata。
+3. **Excel 枢纽** 与 Phase 3 **`/config/export|import` JSON 整包** 并存：前者面向业务人员按模块 xlsx 快捷操作，后者面向治理配置迁移。
+4. **`module_key` 注册表** 实现于代码常量，首版至少覆盖：字段主表、密级定义/绑定、分类树层级/节点、字段分类绑定、生命周期元字段、相关性问卷、业务功能、填报任务导出、分类矩阵/结果导出。
+
+**影响**：实现 mock 替换 API 前须按数据模型文档迁移；附录 A 待增补文档模块 `behavior_key`（见数据模型 §6）。

@@ -8,14 +8,17 @@
 
 ## 2. 当前实现状态
 
-- **已接真实 API**：`GET /api/v1/users/me` — 用于 `effectivePlatformRole`；仅 **`system_admin`** 与 **`security_fo`** 可停留本页，其余角色提示后重定向至控制台首页（与侧栏「填报情况」可见性一致）。
-- **Mock / 仅前端**：六类看板指标（未绑定 FO、未创建任务、未下发任务、填报未完成、填报完成未审核、填报审核完成）、ECharts 饼图/柱状图、任务明细表均为前端计算；**无**列表类 HTTP 接口。
+- **已接真实 API**（`portalApi.js` + `usePortalTenantContext`）：
+  - `GET .../business-functions` — 业务功能与 FO 绑定状态
+  - `GET .../submission-tasks` — 任务全量（limit 500）
+- **Mock / 仅前端**：六类看板指标、ECharts 图表、明细表行归类逻辑仍为前端推导（基于 API 数据）。
 
-## 3. 待对接 API（占位）
+## 3. 待对接 API
 
-| 前端能力 | 说明 |
-|----------|------|
-| 项目空间下业务功能与 FO 绑定、任务全量及状态 | 与 [submission-task-management.md](./submission-task-management.md) 中列表/功能接口规划一致；本页可复用聚合接口或由前端组合多请求。 |
+| 前端能力 | 说明 | 状态 |
+|----------|------|------|
+| 业务功能 + 任务列表 | 同上两接口 | **已接** |
+| 服务端聚合统计 | 可选专用 dashboard 接口 | **待规格** |
 
 ## 4. 与规格的差异 / 缺口
 
