@@ -65,7 +65,10 @@ def _resolve_function_ids(session: Session, tenant_id: int, space_id: int, keys_
     ids: list[int] = []
     for raw in keys_or_ids:
         if isinstance(raw, int) or (isinstance(raw, str) and str(raw).isdigit()):
-            ids.append(int(raw))
+            fid = int(raw)
+            fn = session.get(BusinessFunction, fid)
+            if fn and fn.tenant_id == tenant_id and fn.project_space_id == space_id and fn.id:
+                ids.append(fn.id)
             continue
         fn = session.exec(
             select(BusinessFunction).where(

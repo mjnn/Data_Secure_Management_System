@@ -165,10 +165,12 @@ const router = useRouter();
 const loading = ref(false);
 const showPassword = ref(false);
 const statusMessage = ref("");
-const form = reactive({ username: "admin", password: "Admin123456" });
-
-/** 仅开发构建展示，与 backend/app/core/config.py 默认值、main.py 种子一致 */
 const isDev = import.meta.env.DEV;
+
+const form = reactive({
+  username: isDev ? "admin" : "",
+  password: isDev ? "Admin123456" : ""
+});
 
 const devTestAccounts = [
   {

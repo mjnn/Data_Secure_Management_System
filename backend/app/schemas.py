@@ -10,8 +10,8 @@ class Page(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class RefreshRequest(BaseModel):
@@ -113,6 +113,7 @@ class UserImportItem(BaseModel):
     department: Optional[str]
     is_active: bool
     created_at: datetime
+    temporary_password: Optional[str] = None
 
 
 class SpaceCreateIn(BaseModel):

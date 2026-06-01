@@ -1,20 +1,36 @@
 import axios from "axios";
+import { resolveApiBase } from "./api/resolveApiBase.js";
+import { appUrl } from "./utils/appBase.js";
+import { clearLocalSession } from "./utils/session.js";
+import { createRefreshCoordinator, handleUnauthorizedResponse } from "./api/tokenRefresh.js";
 
-// 开发环境走 Vite 代理（同域 /api → 后端），避免 localhost 与 127.0.0.1 混用导致 CORS 拦截登录
-function resolveApiBase() {
-  if (import.meta.env.VITE_API_BASE != null && import.meta.env.VITE_API_BASE !== "") {
-    return import.meta.env.VITE_API_BASE;
-  }
-  if (import.meta.env.DEV) return "";
-  const base = import.meta.env.BASE_URL || "/";
-  return base === "/" ? "" : base.replace(/\/$/, "");
-}
-
-const baseURL = resolveApiBase();
+const baseURL = resolveApiBase(import.meta.env);
 
 const api = axios.create({
   baseURL
 });
+
+const refreshCoordinator = createRefreshCoordinator();
+
+function redirectToLogin() {
+  clearLocalSession();
+  if (!window.location.pathname.endsWith("/login") && !window.location.pathname.endsWith("login")) {
+    location.href = appUrl("login");
+  }
+}
+
+async function refreshAccessToken() {
+  const refreshToken = localStorage.getItem("dsms_refresh_token");
+  if (!refreshToken) {
+    throw new Error("missing refresh token");
+  }
+  const { data } = await axios.post(`${baseURL || ""}/api/v1/auth/refresh`, {
+    refresh_token: refreshToken
+  });
+  localStorage.setItem("dsms_access_token", data.access_token);
+  localStorage.setItem("dsms_refresh_token", data.refresh_token);
+  return data.access_token;
+}
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("dsms_access_token");
@@ -27,22 +43,16 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      const refreshToken = localStorage.getItem("dsms_refresh_token");
-      if (refreshToken) {
-        try {
-          const { data } = await axios.post(`${baseURL || ""}/api/v1/auth/refresh`, {
-            refresh_token: refreshToken
-          });
-          localStorage.setItem("dsms_access_token", data.access_token);
-          localStorage.setItem("dsms_refresh_token", data.refresh_token);
-          error.config.headers.Authorization = `Bearer ${data.access_token}`;
-          return api.request(error.config);
-        } catch (_err) {
-          localStorage.removeItem("dsms_access_token");
-          localStorage.removeItem("dsms_refresh_token");
-        }
-      }
+    const retried = await handleUnauthorizedResponse({
+      error,
+      api,
+      coordinator: refreshCoordinator,
+      getRefreshToken: () => localStorage.getItem("dsms_refresh_token"),
+      refreshAccessToken,
+      onAuthFailure: redirectToLogin
+    });
+    if (retried) {
+      return retried;
     }
     return Promise.reject(error);
   }

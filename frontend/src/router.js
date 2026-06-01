@@ -1,30 +1,31 @@
 import { createRouter, createWebHistory } from "vue-router";
-import LoginPage from "./views/LoginPage.vue";
-import DashboardPage from "./views/DashboardPage.vue";
-import DashboardHomeView from "./views/DashboardHomeView.vue";
-import UserManagementPage from "./views/UserManagementPage.vue";
-import ProjectManagementPage from "./views/ProjectManagementPage.vue";
-import SubmissionTaskManagementPage from "./views/SubmissionTaskManagementPage.vue";
-import SubmissionTaskDetailPage from "./views/SubmissionTaskDetailPage.vue";
-import SubmissionStatusPage from "./views/SubmissionStatusPage.vue";
-import FieldLifecycleMetaPage from "./views/FieldLifecycleMetaPage.vue";
-import FieldCatalogPage from "./views/FieldCatalogPage.vue";
-import RelevanceQuestionnairePage from "./views/RelevanceQuestionnairePage.vue";
-import RelevanceStandardExpressionPage from "./views/RelevanceStandardExpressionPage.vue";
-import RelevanceModuleLayout from "./views/RelevanceModuleLayout.vue";
-import TaxonomyLevelsPage from "./views/TaxonomyLevelsPage.vue";
-import TaxonomyFieldClassificationPage from "./views/TaxonomyFieldClassificationPage.vue";
-import ClassificationResultsPage from "./views/ClassificationResultsPage.vue";
-import ClassificationConfigPage from "./views/ClassificationConfigPage.vue";
-import TaxonomyNodesPage from "./views/TaxonomyNodesPage.vue";
-import TaxonomyModuleLayout from "./views/TaxonomyModuleLayout.vue";
-import ClassGradeModuleLayout from "./views/ClassGradeModuleLayout.vue";
-import SensitivityLevelsPage from "./views/SensitivityLevelsPage.vue";
-import FieldClassGradeBindingPage from "./views/FieldClassGradeBindingPage.vue";
-import SecurityRequirementModuleLayout from "./views/SecurityRequirementModuleLayout.vue";
-import SecurityRequirementPage from "./views/SecurityRequirementPage.vue";
-import ApprovalManagementPage from "./views/ApprovalManagementPage.vue";
-import DocumentResourcePage from "./views/DocumentResourcePage.vue";
+
+const LoginPage = () => import("./views/LoginPage.vue");
+const DashboardPage = () => import("./views/DashboardPage.vue");
+const DashboardHomeView = () => import("./views/DashboardHomeView.vue");
+const UserManagementPage = () => import("./views/UserManagementPage.vue");
+const ProjectManagementPage = () => import("./views/ProjectManagementPage.vue");
+const SubmissionTaskManagementPage = () => import("./views/SubmissionTaskManagementPage.vue");
+const SubmissionTaskDetailPage = () => import("./views/SubmissionTaskDetailPage.vue");
+const SubmissionStatusPage = () => import("./views/SubmissionStatusPage.vue");
+const FieldLifecycleMetaPage = () => import("./views/FieldLifecycleMetaPage.vue");
+const FieldCatalogPage = () => import("./views/FieldCatalogPage.vue");
+const RelevanceQuestionnairePage = () => import("./views/RelevanceQuestionnairePage.vue");
+const RelevanceStandardExpressionPage = () => import("./views/RelevanceStandardExpressionPage.vue");
+const RelevanceModuleLayout = () => import("./views/RelevanceModuleLayout.vue");
+const TaxonomyLevelsPage = () => import("./views/TaxonomyLevelsPage.vue");
+const TaxonomyFieldClassificationPage = () => import("./views/TaxonomyFieldClassificationPage.vue");
+const ClassificationResultsPage = () => import("./views/ClassificationResultsPage.vue");
+const ClassificationConfigPage = () => import("./views/ClassificationConfigPage.vue");
+const TaxonomyNodesPage = () => import("./views/TaxonomyNodesPage.vue");
+const TaxonomyModuleLayout = () => import("./views/TaxonomyModuleLayout.vue");
+const ClassGradeModuleLayout = () => import("./views/ClassGradeModuleLayout.vue");
+const SensitivityLevelsPage = () => import("./views/SensitivityLevelsPage.vue");
+const FieldClassGradeBindingPage = () => import("./views/FieldClassGradeBindingPage.vue");
+const SecurityRequirementModuleLayout = () => import("./views/SecurityRequirementModuleLayout.vue");
+const SecurityRequirementPage = () => import("./views/SecurityRequirementPage.vue");
+const ApprovalManagementPage = () => import("./views/ApprovalManagementPage.vue");
+const DocumentResourcePage = () => import("./views/DocumentResourcePage.vue");
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

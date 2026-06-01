@@ -5,6 +5,7 @@ from app.core.deps import get_current_user
 from app.core.database import get_session
 from app.core.security import get_password_hash, verify_password
 from app.models import User, utc_now
+from app.services.token_service import bump_refresh_token_version
 from app.schemas import UserMeOut, UserMeUpdateIn, UserPasswordChangeIn
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
@@ -72,6 +73,5 @@ def change_my_password(
         )
     current_user.hashed_password = get_password_hash(payload.new_password)
     current_user.updated_at = utc_now()
-    session.add(current_user)
-    session.commit()
+    bump_refresh_token_version(session, current_user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

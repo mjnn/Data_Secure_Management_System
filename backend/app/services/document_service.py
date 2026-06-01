@@ -47,7 +47,9 @@ def save_upload_file(tenant_id: int, original_name: str, content: bytes) -> tupl
 
 
 def resolve_storage_path(tenant_id: int, storage_path: str) -> Path:
-    return _tenant_upload_dir(tenant_id) / storage_path
+    from app.core.upload_utils import resolve_path_within_root
+
+    return resolve_path_within_root(_tenant_upload_dir(tenant_id), storage_path)
 
 
 def create_document_resource(

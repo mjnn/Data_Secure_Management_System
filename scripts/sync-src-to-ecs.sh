@@ -11,6 +11,8 @@ REMOTE_SRC="/srv/apps/dsms-src"
 TARBALL="/tmp/dsms-src.tar.gz"
 
 cd "${ROOT}"
+echo "==> Building frontend (VITE_APP_BASE=/tools/dsms/)"
+(cd frontend && pnpm install --frozen-lockfile && pnpm run build:ecs)
 tar czf "${TARBALL}" \
   --exclude='.git' \
   --exclude='node_modules' \

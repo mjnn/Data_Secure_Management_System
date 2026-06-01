@@ -19,6 +19,7 @@ def test_openapi_contains_phase23_paths():
     assert "delete" in tenant_detail
     copy_path = "/api/v1/dsms/tenants/{tenant_id}/spaces/{space_id}/submission-tasks/copy-approved-from"
     assert "post" in paths.get(copy_path, {})
+    assert "post" in paths.get("/api/v1/auth/logout", {})
 
 
 def test_sqlite_migration_adds_taxonomy_column():

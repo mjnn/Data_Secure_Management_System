@@ -22,6 +22,7 @@ class User(SQLModel, table=True):
     is_superuser: bool = False
     is_approved: bool = True
     avatar_url: Optional[str] = None
+    refresh_token_version: int = Field(default=0)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -314,6 +315,13 @@ class GovernanceChangeLog(SQLModel, table=True):
     summary: Optional[str] = None
     detail_json: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class RevokedRefreshToken(SQLModel, table=True):
+    jti: str = Field(primary_key=True, max_length=64)
+    username: str = Field(index=True, max_length=100)
+    expires_at: datetime
+    revoked_at: datetime = Field(default_factory=utc_now)
 
 
 from app.models_portal import (  # noqa: E402

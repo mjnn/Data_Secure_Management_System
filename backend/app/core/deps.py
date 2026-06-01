@@ -11,7 +11,10 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 def get_current_user(session: Session = Depends(get_session), token: str = Depends(oauth2_scheme)) -> User:
-    payload = decode_token(token)
+    try:
+        payload = decode_token(token)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效")
     if payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌类型错误")
     username = payload.get("sub")

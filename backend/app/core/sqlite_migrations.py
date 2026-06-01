@@ -20,8 +20,10 @@ def _ensure_sqlite_phase_columns(conn) -> None:
 
 def _ensure_user_platform_role_column(conn) -> None:
     _add_column_if_missing(conn, "user", "platform_role", "platform_role VARCHAR DEFAULT 'security_fo'")
+    _add_column_if_missing(conn, "user", "refresh_token_version", "refresh_token_version INTEGER DEFAULT 0")
     conn.execute(text("UPDATE user SET platform_role = 'system_admin' WHERE is_superuser = 1"))
     conn.execute(text("UPDATE user SET platform_role = 'security_fo' WHERE platform_role IS NULL OR platform_role = ''"))
+    conn.execute(text("UPDATE user SET refresh_token_version = 0 WHERE refresh_token_version IS NULL"))
 
 
 def _ensure_portal_model_columns(conn) -> None:

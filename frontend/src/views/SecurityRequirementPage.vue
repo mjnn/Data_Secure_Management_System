@@ -39,7 +39,8 @@
         <span class="srq__card-title">按数据字段求值</span>
       </template>
       <p class="srq__hint">
-        选择数据字段后，读取其已配置的<strong>密级 / 分类</strong>（及生命周期取值，若有），对<strong>全部规则</strong>试算是否触发。
+        选择数据字段后，读取其已配置的<strong>密级 / 分类</strong>（及生命周期取值，若有）；门户触发树规则在前端试算，<code class="srq__code">min_grade</code> 等后端校验项调用
+        <code class="srq__code">/fields/security-requirements/evaluate</code>。
       </p>
       <p v-if="trialSnapshot" class="srq__snapshot">
         当前字段：<strong>密级</strong> {{ trialSnapshot.gradeLabel }} · <strong>分类</strong> {{ trialSnapshot.taxPath }}
@@ -55,6 +56,7 @@
         </dsms-filterable-select>
       </div>
       <el-table
+        v-loading="trialLoading"
         v-if="trialFieldId && trialResults.length"
         :data="trialResults"
         border
@@ -120,6 +122,7 @@ import SecurityLogicExprBuilder from "../components/security/SecurityLogicExprBu
 import {
   createSecurityRequirementRule,
   deleteSecurityRequirementRule,
+  evaluateSecurityRequirements,
   fetchSecurityRequirements,
   updateSecurityRequirementRule
 } from "../api/dsmsSpaceApi.js";
@@ -139,6 +142,9 @@ import {
 const { tenantId, spaceId, ready } = usePortalTenantContext();
 const refreshTick = ref(0);
 const trialFieldId = ref("");
+const trialResults = ref([]);
+const trialLoading = ref(false);
+const trialSeq = ref(0);
 const editVisible = ref(false);
 const editMode = ref("create");
 const editingId = ref("");
@@ -165,11 +171,58 @@ const ruleRows = computed(() => {
   }));
 });
 
-const trialResults = computed(() => {
-  void refreshTick.value;
-  if (!trialFieldId.value) return [];
-  return evaluateRulesForField(trialFieldId.value);
-});
+async function runTrialEvaluation() {
+  if (!trialFieldId.value) {
+    trialResults.value = [];
+    return;
+  }
+  if (!tenantId.value) return;
+  const seq = ++trialSeq.value;
+  const fieldId = trialFieldId.value;
+  trialLoading.value = true;
+  try {
+    const localRows = evaluateRulesForField(fieldId).map((t) => ({
+      rule: { rule_name: t.rule.rule_name },
+      triggered: t.triggered,
+      actionPreview: t.actionPreview,
+      evalHint: t.evalHint
+    }));
+    const entry = loadDataFieldCatalogEntries().find((e) => e.id === fieldId);
+    const apiId = entry?._apiId ?? (Number.isFinite(Number(entry?.id)) ? Number(entry.id) : null);
+    const merged = [...localRows];
+    if (!apiId) {
+      ElMessage.warning("该字段尚未同步到后端，仅试算门户规则");
+    } else {
+      const data = await evaluateSecurityRequirements(tenantId.value, spaceId.value, [apiId]);
+      if (seq !== trialSeq.value) return;
+      const item = (data?.items || []).find((x) => x.field_catalog_entry_id === apiId);
+      for (const req of item?.requirements || []) {
+        if (req.check_kind === "portal_rule") continue;
+        merged.push({
+          rule: { rule_name: req.requirement_name },
+          triggered: !req.passed,
+          actionPreview: req.reason || "—",
+          evalHint: req.passed ? "后端校验通过" : "后端校验未通过"
+        });
+      }
+    }
+    if (seq !== trialSeq.value) return;
+    trialResults.value = merged;
+  } catch (e) {
+    if (seq !== trialSeq.value) return;
+    ElMessage.error(e.response?.data?.detail || "试算失败");
+    trialResults.value = evaluateRulesForField(fieldId).map((t) => ({
+      rule: { rule_name: t.rule.rule_name },
+      triggered: t.triggered,
+      actionPreview: t.actionPreview,
+      evalHint: t.evalHint
+    }));
+  } finally {
+    if (seq === trialSeq.value) {
+      trialLoading.value = false;
+    }
+  }
+}
 
 const editForm = reactive({
   rule_name: "",
@@ -196,6 +249,10 @@ async function reloadRules() {
 
 watch([ready, tenantId, spaceId], () => {
   if (ready.value) reloadRules();
+});
+
+watch([trialFieldId, refreshTick], () => {
+  if (ready.value) runTrialEvaluation();
 });
 
 function anchorFieldId() {

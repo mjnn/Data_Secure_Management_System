@@ -20,6 +20,7 @@
 
 <script setup>
 import { onMounted, ref, watch } from "vue";
+import { sanitizeHtml } from "../utils/sanitizeHtml.js";
 
 const props = defineProps({
   modelValue: { type: String, default: "" },
@@ -31,7 +32,7 @@ const emit = defineEmits(["update:modelValue"]);
 const bodyRef = ref(null);
 
 function onInput() {
-  emit("update:modelValue", bodyRef.value?.innerHTML ?? "");
+  emit("update:modelValue", sanitizeHtml(bodyRef.value?.innerHTML ?? ""));
 }
 
 function exec(cmd) {
@@ -43,7 +44,7 @@ function exec(cmd) {
 function syncFromModel(html) {
   const el = bodyRef.value;
   if (!el) return;
-  const next = html || "";
+  const next = sanitizeHtml(html || "");
   if (el.innerHTML !== next) el.innerHTML = next;
 }
 

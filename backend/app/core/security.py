@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -17,26 +18,24 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_token(subject: str, expires_delta: timedelta, token_type: str) -> str:
-    expire = datetime.now(timezone.utc) + expires_delta
-    payload = {"sub": subject, "exp": expire, "type": token_type}
+def create_access_token(subject: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    payload = {"sub": subject, "exp": expire, "type": "access"}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
-def create_access_token(subject: str) -> str:
-    return create_token(
-        subject=subject,
-        expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
-        token_type="access",
-    )
-
-
-def create_refresh_token(subject: str) -> str:
-    return create_token(
-        subject=subject,
-        expires_delta=timedelta(days=settings.refresh_token_expire_days),
-        token_type="refresh",
-    )
+def create_refresh_token(subject: str, token_version: int = 0) -> tuple[str, str, datetime]:
+    jti = uuid4().hex
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+    payload = {
+        "sub": subject,
+        "exp": expire,
+        "type": "refresh",
+        "jti": jti,
+        "ver": token_version,
+    }
+    token = jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    return token, jti, expire
 
 
 def decode_token(token: str) -> dict:

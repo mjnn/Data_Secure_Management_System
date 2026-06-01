@@ -7,7 +7,86 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
+from app.api.dsms_auth import has_function_fo_role, is_staff
+from app.models import User
 from app.models_portal import BusinessFunction, FoUserFunctionBinding, SubmissionTask
+
+STAFF_PATCH_KEYS = frozenset({"auditStatus", "auditComment", "auditedAt", "status"})
+FO_PATCH_KEYS = frozenset(
+    {
+        "foFillStatus",
+        "foFillContentSummary",
+        "foFillFormSnapshot",
+        "foFillLifecycleRows",
+        "foCancellationRequested",
+        "foCancellationReason",
+        "foCancelApprovalPending",
+        "foWorkflowStep",
+        "foRelevanceConclusion",
+        "foRelevanceFillRow",
+        "foGovernanceResult",
+    }
+)
+META_PATCH_KEYS = frozenset({"title", "internalNote", "dispatchNote"})
+ALLOWED_PATCH_KEYS = STAFF_PATCH_KEYS | FO_PATCH_KEYS | META_PATCH_KEYS
+
+
+class TaskPatchPermissionError(PermissionError):
+    pass
+
+
+class TaskPatchValidationError(ValueError):
+    pass
+
+
+def user_can_fill_task(
+    session: Session, user: User, tenant_id: int, space_id: int, task: SubmissionTask
+) -> bool:
+    if user.is_superuser:
+        return True
+    if not has_function_fo_role(user):
+        return False
+    if task.assignee_user_id == user.id:
+        return True
+    binding = session.exec(
+        select(FoUserFunctionBinding).where(
+            FoUserFunctionBinding.tenant_id == tenant_id,
+            FoUserFunctionBinding.project_space_id == space_id,
+            FoUserFunctionBinding.user_id == user.id,
+            FoUserFunctionBinding.business_function_id == task.business_function_id,
+            FoUserFunctionBinding.status == "active",
+        )
+    ).first()
+    return binding is not None
+
+
+def filter_task_patch_fields(
+    session: Session,
+    user: User,
+    tenant_id: int,
+    space_id: int,
+    task: SubmissionTask,
+    fields: dict,
+) -> dict:
+    if not fields:
+        raise TaskPatchValidationError("未提供可更新字段")
+    staff = is_staff(user)
+    can_fo = user_can_fill_task(session, user, tenant_id, space_id, task)
+    allowed: dict = {}
+    for key, value in fields.items():
+        if key not in ALLOWED_PATCH_KEYS:
+            raise TaskPatchValidationError(f"不允许修改字段：{key}")
+        if key in STAFF_PATCH_KEYS:
+            if not staff:
+                raise TaskPatchPermissionError("仅数据安全 FO 或系统管理员可修改审批相关字段")
+        elif key in FO_PATCH_KEYS:
+            if not can_fo:
+                raise TaskPatchPermissionError("仅绑定的功能 FO 可修改填报相关字段")
+        elif key in META_PATCH_KEYS:
+            if not staff:
+                raise TaskPatchPermissionError("仅数据安全 FO 或系统管理员可修改任务基本信息")
+        allowed[key] = value
+    return allowed
 
 
 def task_to_frontend(session: Session, task: SubmissionTask) -> dict:
